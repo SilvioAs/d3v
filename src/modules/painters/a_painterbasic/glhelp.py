@@ -22,6 +22,7 @@ class GLDataType(Enum):
     FLOAT = GL.GL_FLOAT
     UBYTE = GL.GL_UNSIGNED_BYTE
 
+
 class GLHelpFun:
     @staticmethod
     def datatypesize(GLDataType_arg):
@@ -36,9 +37,9 @@ class GLHelpFun:
     @staticmethod
     def numpydatatype(GLDataType_arg):
 
-        dtype = np.dtype('f') # default
+        dtype = np.dtype('f')  # default
         if GLDataType_arg == GLDataType.FLOAT:
-            dtype = np.dtype('f') # default
+            dtype = np.dtype('f')  # default
         elif GLDataType_arg == GLDataType.UBYTE:
             dtype = np.dtype('B')
         return dtype
