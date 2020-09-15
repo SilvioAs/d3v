@@ -10,9 +10,7 @@ from selection import Selector
 from bounds import BBox
 import time
 from array import array
-from multiprocessing import Pool, Process, Queue, Manager
-import os
-import dill
+from multiprocessing import Pool
 
 
 class npvector3:
@@ -166,19 +164,10 @@ class SubDivBoxTree(dmnsn_aabb):
         self.mesh = mesh
         self.facets = []
         self.nodes = []
-        self.node_list = []
         self._maxfacets = 1000
         self.name = ""
 
-    def createTreeRoot(self, box:BBox):
-        return self.createTreeRoot_parallel(box)
-        # return self.createTreeRoot_recursive(box)
-
-    def getIntersectedLeafs(self, optray, t, intrsectleafs):
-        return self.getIntersectedLeafs_parallel(optray, t, intrsectleafs)
-        # return self.getIntersectedLeafs_recursive(optray, t, intrsectleafs)
-
-    def getIntersectedLeafs_recursive(self, optray, t, intrsectLeafs):
+    def getIntersectedLeafs(self, optray, t, intrsectLeafs):
         if self.dmnsn_ray_box_intersection(optray, t):
             if self.isleaf:
                 intrsectLeafs.append(self)
@@ -188,154 +177,56 @@ class SubDivBoxTree(dmnsn_aabb):
 
         return len(intrsectLeafs) > 0
 
-    def getIntersectedLeafs_parallel(self, optray, t, intrsectLeafs):
-        for node in self.node_list:
-            if node.dmnsn_ray_box_intersection(optray, t):
-                if node.isleaf:
-                    intrsectLeafs.append(node)
-
-        return len(intrsectLeafs) > 0
-
-    def createTreeRoot_parallel(self, box: BBox):
-        # pass
-        fv_indices = self.mesh.fv_indices().tolist()
-        points = self.mesh.points().tolist()
-
-        tsTR = time.perf_counter()
-        self.setFromBBox(box)
-        self.name = "root"
-        nf = len(fv_indices)
-        for ifh in range(nf):
-            self.facets.append(ifh)
-
-        nodes = self.subdivideOn2New_parallel(fv_indices, points)
-        end_nodes = []
-        in_recursion = True
-        while in_recursion:
-            if len(nodes) < 1:
-                break
-
-            new_nodes = []
-            for node in nodes:
-                if node.numFacets > self._maxfacets:
-                    sub_nodes = node.subdivideOn2New_parallel(fv_indices, points)
-                    [new_nodes.append(sub_node) for sub_node in sub_nodes]
-                else:
-                    end_nodes.append(node)
-
-            nodes = new_nodes
-            if len(new_nodes) >= 4:
-                break
-
-        processes = []
-        pool_args = []
-        for node in nodes:
-            # args = dill.dumps((node, fv_indices, points, self._maxfacets))
-            args = (node, fv_indices, points, self._maxfacets)
-            pool_args.append(args)
-            # p = Process(target=SubDivBoxTree.second_level_subdivide, args=args)
-            # p.start()
-            # processes.append(p)
-        #
-        # for p in processes:
-        #     p.join()
-        with Pool(processes=len(nodes)) as p:
-            nodes_per_core = p.map(SubDivBoxTree.second_level_subdivide_wrapped, pool_args)
-
-            # pool_args.append(args)
-        print("Pool done")
-        for nodes in nodes_per_core:
-            for node in nodes:
-                end_nodes.append(node)
-
-        self.node_list = end_nodes
-
-        dtTR = time.perf_counter() - tsTR
-        print("Tree creation time, s:", dtTR)
-        # self.printTreeInfo()
+    @staticmethod
+    def calcFacetCG(mesh: om.TriMesh, fh: om.FaceHandle):
+        x = 0
+        y = 0
+        z = 0
+        n = 0
+        for vh in mesh.fv(fh):
+            p = mesh.point(vh)
+            n = n + 1
+            x = x + p[0]
+            y = y + p[1]
+            z = z + p[2]
+            # test is point in box
+        cgVect = npvector3()
+        cgVect.setFromScalars(x / n, y / n, z / n)
+        return cgVect
 
     @staticmethod
-    def second_level_subdivide_wrapped(args):
-        return SubDivBoxTree.second_level_subdivide(*args)
+    def calcFacetCG_new(fvs: [], points: []):
+        x = 0
+        y = 0
+        z = 0
+        n = len(fvs)
+        for iv in fvs:
+            p = points[iv]
+            x = x + p[0]
+            y = y + p[1]
+            z = z + p[2]
+            # test is point in box
+        cgVect = npvector3()
+        cgVect.setFromScalars(x / n, y / n, z / n)
+        return cgVect
 
-    @staticmethod
-    def second_level_subdivide(parent_node, fv_indices, points, max_facets):
-        t1 = time.perf_counter()
-        end_nodes = []
-
-        nodes = parent_node.subdivideOn2New_parallel(fv_indices, points)
-
-        in_recursion = True
-        while in_recursion:
-            if len(nodes) < 1:
-                break
-
-            new_nodes = []
-            for node in nodes:
-                if node.numFacets > max_facets:
-                    sub_nodes = node.subdivideOn2New_parallel(fv_indices, points)
-                    [new_nodes.append(sub_node) for sub_node in sub_nodes]
-                else:
-                    end_nodes.append(node)
-
-            nodes = new_nodes
-        print("Time needed for process: {}".format(time.perf_counter() - t1))
-        return end_nodes
-
-    def subdivideOn2New_parallel(self, fv_indices: [], points: []):
-        # determine max deltas of bbox
-        dx = self.max.X - self.min.X
-        dy = self.max.Y - self.min.Y
-        dz = self.max.Z - self.min.Z
-        dmax = max(dx, dy, dz)
-
-        # Copy full bounding box two times and split them half
-        sbox1 = self.new()
-        sbox1.name = self.name + "_1"
-        sbox2 = self.new()
-        sbox2.name = self.name + "_2"
-        if dx == dmax:
-            sbox1.max.X = (self.max.X + self.min.X) * 0.5
-            sbox2.min.X = sbox1.max.X
-        elif dy == dmax:
-            sbox1.max.Y = (self.max.Y + self.min.Y) * 0.5
-            sbox2.min.Y = sbox1.max.Y
-        else:
-            sbox1.max.Z = (self.max.Z + self.min.Z) * 0.5
-            sbox2.min.Z = sbox1.max.Z
-
-        # Iterate through faces
-        for ifh in self.facets:
-            # Calc center of each face and distribute the face in the corresponding splitted bounding box
-            fhCG = SubDivBoxTree.calcFacetCG_new(fv_indices[ifh], points)
-            if sbox1.isIn(fhCG):
-                sbox1.addFacet(ifh)
-            else:
-                sbox2.addFacet(ifh)
-
-        # Clear the parent bounding box
-        self.clearFacets()
-        nodes = []
-        # If the splitted bounding box contains face, append it to nodes -> Starts over in SubDivideOn2
-        if sbox1.numFacets > 0:
-            nodes.append(sbox1)
-        if sbox2.numFacets > 0:
-            nodes.append(sbox2)
-
-        return nodes
-
-    def new(self):
-        cb = SubDivBoxTree(None)
-        cb.min.copyFrom(self.min)
-        cb.max.copyFrom(self.max)
-        return cb
-
-    def createTreeRoot_recursive(self, box: BBox):
+    def createTreeRoot(self, box: BBox):
         # pass
         ar_fv_indices = self.mesh.fv_indices().tolist()
         ar_points = self.mesh.points().tolist()
         # self.createTreeRootList(box)
         self.createTreeRootListNew(box, ar_fv_indices, ar_points)
+
+    def createTreeRootList(self, box: BBox):
+        tsTR = time.perf_counter()
+        self.setFromBBox(box)
+        self.name = "root"
+        for fh in self.mesh.faces():
+            self.facets.append(fh)
+        self.createTree()
+        dtTR = time.perf_counter() - tsTR
+        print("Tree creation time, s:", dtTR)
+        # self.printTreeInfo()
 
     def createTreeRootListNew(self, box: BBox, fv_indices: [], points: []):
         tsTR = time.perf_counter()
@@ -349,70 +240,6 @@ class SubDivBoxTree(dmnsn_aabb):
         print("Tree creation time, s:", dtTR)
         # self.printTreeInfo()
 
-    def createTreeNew(self, fv_indices: [], points: []):
-        if self.numFacets > self._maxfacets:
-            self.subdivideOn2New(fv_indices, points)
-            for node in self.nodes:
-                node.createTreeNew(fv_indices, points)
-
-    def subdivideOn2New(self, fv_indices: [], points: []):
-        # determine max deltas of bbox
-        dx = self.max.X - self.min.X
-        dy = self.max.Y - self.min.Y
-        dz = self.max.Z - self.min.Z
-        dmax = max(dx, dy, dz)
-
-        # Copy full bounding box two times and split them half
-        sbox1 = self.copy()
-        sbox1.name = self.name + "_1"
-        sbox2 = self.copy()
-        sbox2.name = self.name + "_2"
-        if dx == dmax:
-            sbox1.max.X = (self.max.X + self.min.X) * 0.5
-            sbox2.min.X = sbox1.max.X
-        elif dy == dmax:
-            sbox1.max.Y = (self.max.Y + self.min.Y) * 0.5
-            sbox2.min.Y = sbox1.max.Y
-        else:
-            sbox1.max.Z = (self.max.Z + self.min.Z) * 0.5
-            sbox2.min.Z = sbox1.max.Z
-
-        # Iterate through faces
-        for ifh in self.facets:
-            # Calc center of each face and distribute the face in the corresponding splitted bounding box
-            fhCG = SubDivBoxTree.calcFacetCG_new(fv_indices[ifh], points)
-            if sbox1.isIn(fhCG):
-                sbox1.addFacet(ifh)
-            else:
-                sbox2.addFacet(ifh)
-
-        # Clear the parent bounding box
-        self.clearFacets()
-        # If the splitted bounding box contains face, append it to nodes -> Starts over in SubDivideOn2
-        if sbox1.numFacets > 0:
-            self.nodes.append(sbox1)
-        if sbox2.numFacets > 0:
-            self.nodes.append(sbox2)
-
-    @staticmethod
-    def calcFacetCG_new(fvs: [], points: []):
-        x = 0
-        y = 0
-        z = 0
-        n = len(fvs)
-        for iv in fvs:
-            p = points[iv]
-            x += p[0]
-            y += p[1]
-            z += p[2]
-            # test is point in box
-        cgVect = npvector3()
-        cgVect.setFromScalars(x / n, y / n, z / n)
-        return cgVect
-
-    """
-    Utilitiy functions
-    """
     def printTreeInfo(self):
         print(self.name, end="", flush=True)
         if self.isleaf:
@@ -423,6 +250,18 @@ class SubDivBoxTree(dmnsn_aabb):
             print(", not leaf.")
         for node in self.nodes:
             node.printTreeInfo()
+
+    def createTree(self):
+        if self.numFacets > self._maxfacets:
+            self.subdivideOn2()
+            for node in self.nodes:
+                node.createTree()
+
+    def createTreeNew(self, fv_indices: [], points: []):
+        if self.numFacets > self._maxfacets:
+            self.subdivideOn2New(fv_indices, points)
+            for node in self.nodes:
+                node.createTreeNew(fv_indices, points)
 
     def copy(self):
         cb = SubDivBoxTree(self.mesh)
@@ -447,26 +286,6 @@ class SubDivBoxTree(dmnsn_aabb):
     @property
     def numFacets(self):
         return len(self.facets)
-
-    """
-    OLD
-    """
-    def createTreeRootList(self, box: BBox):
-        tsTR = time.perf_counter()
-        self.setFromBBox(box)
-        self.name = "root"
-        for fh in self.mesh.faces():
-            self.facets.append(fh)
-        self.createTree()
-        dtTR = time.perf_counter() - tsTR
-        print("Tree creation time, s:", dtTR)
-        # self.printTreeInfo()
-
-    def createTree(self):
-        if self.numFacets > self._maxfacets:
-            self.subdivideOn2()
-            for node in self.nodes:
-                node.createTree()
 
     def subdivideOn2(self):
         dx = self.max.X - self.min.X
@@ -499,38 +318,36 @@ class SubDivBoxTree(dmnsn_aabb):
         if sbox2.numFacets > 0:
             self.nodes.append(sbox2)
 
-    @staticmethod
-    def calcFacetCG(mesh: om.TriMesh, fh: om.FaceHandle):
-        x = 0
-        y = 0
-        z = 0
-        n = 0
-        for vh in mesh.fv(fh):
-            p = mesh.point(vh)
-            n = n + 1
-            x = x + p[0]
-            y = y + p[1]
-            z = z + p[2]
-            # test is point in box
-        cgVect = npvector3()
-        cgVect.setFromScalars(x / n, y / n, z / n)
-        return cgVect
-
-
-def dill_second_level_subdivide(dill_args):
-    print("Started second_level_subdivide")
-    args = dill.loads(dill_args)
-    SubDivBoxTree.second_level_subdivide(*args)
-
-def run_dill_encoded(payload):
-    function, args = dill.loads(payload)
-    return function(*args)
-
-
-def apply_async(pool, function, args):
-    payload = dill.dumps((function, args))
-    return pool.apply_async(run_dill_encoded, (payload,))
-
+    def subdivideOn2New(self, fv_indices: [], points: []):
+        dx = self.max.X - self.min.X
+        dy = self.max.Y - self.min.Y
+        dz = self.max.Z - self.min.Z
+        dmax = max(dx, dy, dz)
+        sbox1 = self.copy()
+        sbox1.name = self.name + "_1"
+        sbox2 = self.copy()
+        sbox2.name = self.name + "_2"
+        res = [sbox1, sbox2]
+        if dx == dmax:
+            sbox1.max.X = (self.max.X + self.min.X) * 0.5
+            sbox2.min.X = sbox1.max.X
+        elif dy == dmax:
+            sbox1.max.Y = (self.max.Y + self.min.Y) * 0.5
+            sbox2.min.Y = sbox1.max.Y
+        else:
+            sbox1.max.Z = (self.max.Z + self.min.Z) * 0.5
+            sbox2.min.Z = sbox1.max.Z
+        for ifh in self.facets:
+            fhCG = SubDivBoxTree.calcFacetCG_new(fv_indices[ifh], points)
+            if sbox1.isIn(fhCG):
+                sbox1.addFacet(ifh)
+            else:
+                sbox2.addFacet(ifh)
+        self.clearFacets()
+        if sbox1.numFacets > 0:
+            self.nodes.append(sbox1)
+        if sbox2.numFacets > 0:
+            self.nodes.append(sbox2)
 
 
 class DefaultSelector(Selector):
