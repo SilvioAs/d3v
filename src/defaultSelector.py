@@ -171,12 +171,12 @@ class SubDivBoxTree(dmnsn_aabb):
         self.name = ""
 
     def createTreeRoot(self, box:BBox):
-        return self.createTreeRoot_parallel(box)
-        # return self.createTreeRoot_recursive(box)
+        # return self.createTreeRoot_parallel(box)
+        return self.createTreeRoot_recursive(box)
 
     def getIntersectedLeafs(self, optray, t, intrsectleafs):
-        return self.getIntersectedLeafs_parallel(optray, t, intrsectleafs)
-        # return self.getIntersectedLeafs_recursive(optray, t, intrsectleafs)
+        # return self.getIntersectedLeafs_parallel(optray, t, intrsectleafs)
+        return self.getIntersectedLeafs_recursive(optray, t, intrsectleafs)
 
     def getIntersectedLeafs_recursive(self, optray, t, intrsectLeafs):
         if self.dmnsn_ray_box_intersection(optray, t):

@@ -24,10 +24,11 @@ class VertDataCollectorVAO(VertDataCollector):
     Three floats are used for the position (xyz), while four ubyte are used for color (r,g,b,a)
     Possible primitive types are defined by the enum (pyD3VOGLModel.GLEntityType)
     """
-
     def __init__(self, enttype):
         """!
         VertDataCollectorCoord3fColor4ub constructor
+
+
         """
         super().__init__(enttype)
 
@@ -40,45 +41,43 @@ class VertDataCollectorVAO(VertDataCollector):
         self._dVBOs = {}  # dictionary that holds VertDataSingleChannelVBO instances
 
     def GetAtrList(self):
-        atlist = []
+        atlist=[]
         for key, value in self._dVBOs.items():
             atlist.append(value.attproplist())
         return atlist
 
-    def setupVertexAttribs(self, glf):
+    def setupVertexAttribs(self,glf):
         if not self._vao.create():
             print("Error: VAO not created!")
-        # context = QOpenGLContext.currentContext()
-        # print("vao    setup " + str(context))
+        #context = QOpenGLContext.currentContext()
+        #print("vao    setup " + str(context))
         self._vao.bind()
         # Set VBO
         for key, value in self._dVBOs.items():
             value.setupVBO(glf)
         self._vao.release()
 
+
     def drawvao(self, glfunctions):
-        # assert (glfunctions.glIsVertexArray(self._vao))
-        # context = QOpenGLContext.currentContext()
-        # print("vao    paint " + str(context))
+        #assert (glfunctions.glIsVertexArray(self._vao))
+        #context = QOpenGLContext.currentContext()
+        #print("vao    paint " + str(context))
         if not self._vao.isCreated():
             print("Error: VAO not created!")
         self._vao.bind()
-
         glfunctions.glDrawArrays(self.oglprimtype(), 0, self.numvertices())
         self._vao.release()
 
-    def appendsize(self, numents):
+    def appendsize(self,numents):
         """
         Append  size with the specified number of entities
 
         @param numents: number of entities to add
         """
         self._ne += numents
-
     def numvertices(self):
         return self._ne * self._nv4et
-
-    def _appendlistdata_f3(self, key, x1, y1, z1):
+    def _appendlistdata_f3(self,key, x1, y1, z1):
         """!
         Append Vertex collector dictionary item with new vertex data
 
@@ -87,8 +86,7 @@ class VertDataCollectorVAO(VertDataCollector):
         @param z: (\b float) z coordinate
         """
         self._dVBOs[key].add_Data3(x1, y1, z1)
-
-    def _appendlistdata_f4(self, key, x1, y1, z1, w1):
+    def _appendlistdata_f4(self,key, x1, y1, z1,w1):
         """!
         Append Vertex collector dictionary item with new vertex data
 
@@ -96,10 +94,7 @@ class VertDataCollectorVAO(VertDataCollector):
         @param y: (\b float) y coordinate
         @param z: (\b float) z coordinate
         """
-        self._dVBOs[key].add_Data4(x1, y1, z1, w1)
-
-    def _setdata(self, key, data):
-        self._dVBOs[key].set_Data(data)
+        self._dVBOs[key].add_Data4(x1, y1, z1,w1)
 
     def _allocateattribmemory(self, GLDataType_arg, attNumData, attIndex, attName):
         """!
@@ -114,9 +109,6 @@ class VertDataCollectorVAO(VertDataCollector):
         self._ivert += 1
         return self._ivert
 
-    def _setVertexCounter(self, counter):
-        self._ivert = counter
-
     def numverts(self):
         """!
         Get total number of vertices
@@ -125,9 +117,13 @@ class VertDataCollectorVAO(VertDataCollector):
         """
         return self._nv
 
+
+
     def free(self):
         """!
         Free vertex data channels memory
+
+
         """
 
         for key, value in self._dVBOs.items():
@@ -143,7 +139,6 @@ class VertDataCollectorCoord3fNormal3f(VertDataCollectorVAO):
     Three floats are used for the position (xyz), while four ubyte are used for color (r,g,b,a)
     Possible primitive types are defined by the enum (pyD3VOGLModel.GLEntityType)
     """
-
     def __init__(self, enttype):
         """!
         VertDataCollectorCoord3fColor4ub constructor
@@ -165,7 +160,7 @@ class VertDataCollectorCoord3fNormal3f(VertDataCollectorVAO):
         @retval: (\b int) index of the added vertex
         """
 
-        self._appendlistdata_f3("vertex", x, y, z)
+        self._appendlistdata_f3("vertex",x, y, z)
         self._appendlistdata_f3("normal", nx, ny, nz)
         return self._incrementVertexCounter()
 
@@ -175,10 +170,10 @@ class VertDataCollectorCoord3fNormal3f(VertDataCollectorVAO):
 
         Allocation size is based on the information collected by client calls to appendsize()
         """
-        ndata = 3  # x,y,z
-        self._allocateattribmemory(GLDataType.FLOAT, ndata, 0, "vertex")
+        ndata=3 # x,y,z
+        self._allocateattribmemory(GLDataType.FLOAT,ndata, 0,"vertex")
         ndata = 3  # nx,ny,nz
-        self._allocateattribmemory(GLDataType.FLOAT, ndata, 1, "normal")
+        self._allocateattribmemory(GLDataType.FLOAT,ndata, 1, "normal")
 
     def clone(self):
         """!
@@ -190,7 +185,6 @@ class VertDataCollectorCoord3fNormal3f(VertDataCollectorVAO):
         vdc = VertDataCollectorCoord3fNormal3f(self._enttype)
         return vdc
 
-
 class VertDataCollectorCoord3fNormal3fColor4f(VertDataCollectorVAO):
     """!
     VertDataCollectorCoord3fColor4ub class
@@ -199,7 +193,6 @@ class VertDataCollectorCoord3fNormal3fColor4f(VertDataCollectorVAO):
     Three floats are used for the position (xyz), while four ubyte are used for color (r,g,b,a)
     Possible primitive types are defined by the enum (pyD3VOGLModel.GLEntityType)
     """
-
     def __init__(self, enttype):
         """!
         VertDataCollectorCoord3fColor4ub constructor
@@ -208,12 +201,7 @@ class VertDataCollectorCoord3fNormal3fColor4f(VertDataCollectorVAO):
         """
         super().__init__(enttype)
 
-    def setlistdata_f3xyzf3nf4rgba(self, vertex_array, normal_array, color_array):
-        self._setdata('vertex', vertex_array)
-        self._setdata('normal', normal_array)
-        self._setdata('color', color_array)
-
-    def appendlistdata_f3xyzf3nf4rgba(self, x, y, z, nx, ny, nz, r, g, b, a):
+    def appendlistdata_f3xyzf3nf4rgba(self, x, y, z, nx, ny, nz,r,g,b,a):
         """!
         Append Vertex collector dictionary item with new vertex data
 
@@ -226,9 +214,9 @@ class VertDataCollectorCoord3fNormal3fColor4f(VertDataCollectorVAO):
         @retval: (\b int) index of the added vertex
         """
 
-        self._appendlistdata_f3("vertex", x, y, z)
+        self._appendlistdata_f3("vertex",x, y, z)
         self._appendlistdata_f3("normal", nx, ny, nz)
-        self._appendlistdata_f4("color", r, g, b, a)
+        self._appendlistdata_f4("color", r, g, b,a)
         return self._incrementVertexCounter()
 
     def appendlistdata_f3xyzf3n(self, x, y, z, nx, ny, nz):
@@ -244,7 +232,7 @@ class VertDataCollectorCoord3fNormal3fColor4f(VertDataCollectorVAO):
         @retval: (\b int) index of the added vertex
         """
 
-        self._appendlistdata_f3("vertex", x, y, z)
+        self._appendlistdata_f3("vertex",x, y, z)
         self._appendlistdata_f3("normal", nx, ny, nz)
         self._appendlistdata_f4("color", 1.0, 0.0, 0.0, 1.0)
         return self._incrementVertexCounter()
@@ -255,10 +243,10 @@ class VertDataCollectorCoord3fNormal3fColor4f(VertDataCollectorVAO):
 
         Allocation size is based on the information collected by client calls to appendsize()
         """
-        ndata = 3  # x,y,z
-        self._allocateattribmemory(GLDataType.FLOAT, ndata, 0, "vertex")
+        ndata=3 # x,y,z
+        self._allocateattribmemory(GLDataType.FLOAT,ndata, 0,"vertex")
         ndata = 3  # nx,ny,nz
-        self._allocateattribmemory(GLDataType.FLOAT, ndata, 1, "normal")
+        self._allocateattribmemory(GLDataType.FLOAT,ndata, 1, "normal")
         ndata = 4  # r,g,b,a
         self._allocateattribmemory(GLDataType.FLOAT, ndata, 2, "color")
 
@@ -272,8 +260,8 @@ class VertDataCollectorCoord3fNormal3fColor4f(VertDataCollectorVAO):
         vdc = VertDataCollectorCoord3fNormal3fColor4f(self._enttype)
         return vdc
 
-
 class VertDataSingleChannelVBO(VertDataSingleChannel):
+
     def __init__(self, dataType, nvertdata, nvert, index, name):
         """!
         OGLModelVertCordFColorUB constructor
@@ -289,7 +277,7 @@ class VertDataSingleChannelVBO(VertDataSingleChannel):
     def deleteVBO(self):
         self._vbo.destroy()
 
-    def setupVBO(self, glf):
+    def setupVBO(self,glf):
         self._vbo.create()
         self._vbo.bind()
         self._vbo.allocate(self.constData(), self.memsizetotal())
@@ -298,10 +286,10 @@ class VertDataSingleChannelVBO(VertDataSingleChannel):
         null = VoidPtr(0)
         doNormalization = int(GL.GL_FALSE)
         glf.glVertexAttribPointer(self._attIndex,
-                                  self.numvertdata(),
-                                  int(self.ogldatatype()),
-                                  doNormalization,
-                                  self.memsizeonevert(), null)
+                                self.numvertdata(),
+                                int(self.ogldatatype()),
+                                doNormalization,
+                                self.memsizeonevert(), null)
         self._vbo.release()
 
     def free(self):
