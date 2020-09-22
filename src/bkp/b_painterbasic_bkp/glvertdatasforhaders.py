@@ -57,7 +57,6 @@ class VertDataCollectorVAO(VertDataCollector):
             value.setupVBO(glf)
         self._vao.release()
 
-
     def drawvao(self, glfunctions):
         #assert (glfunctions.glIsVertexArray(self._vao))
         #context = QOpenGLContext.currentContext()

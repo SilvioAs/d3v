@@ -52,8 +52,8 @@ class VertDataCollectorVAO(VertDataCollector):
         # print("vao    setup " + str(context))
         self._vao.bind()
         # Set VBO
-        for key, value in self._dVBOs.items():
-            value.setupVBO(glf)
+        for attrib_key, attrib_vbo in self._dVBOs.items():
+            attrib_vbo.setupVBO(glf)
         self._vao.release()
 
     def drawvao(self, glfunctions):

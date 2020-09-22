@@ -21,7 +21,7 @@ import time
 # from multiprocessing.pool import Pool
 from multiprocessing import Pool, Process, Manager, Queue, Array
 import multiprocessing
-
+import dill
 
 class BasicPainter(Painter):
     def __init__(self):
@@ -46,7 +46,7 @@ class BasicPainter(Painter):
         Signals.get().selectionChanged.connect(self.onSelected)
         self.paintDevice = 0
         self.selType = 0  # 0 - geometry
-        self.selType = 1  # 1 - facet
+        # self.selType = 1  # 1 - facet
         self._showBack = False
         self._multFactor = 1
         self.showBack = True
@@ -97,6 +97,7 @@ class BasicPainter(Painter):
         self.program.release()
 
     def paintGL(self):
+        t_start = time.perf_counter()
         super().paintGL()
         self.glf.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         self.glf.glEnable(GL.GL_DEPTH_TEST)
@@ -106,6 +107,8 @@ class BasicPainter(Painter):
         for key, value in self._dentsvertsdata.items():
             value.drawvao(self.glf)
         self.program.release()
+        t_end = time.perf_counter()
+        print("painting done in {}".format(t_end - t_start))
 
     def resizeGL(self, w: int, h: int):
         super().resizeGL(w, h)
@@ -268,25 +271,175 @@ class BasicPainter(Painter):
         pass
 
     def delayedAddGeometry(self, geometry: Geometry):
-        # tsAG = time.perf_counter()
+        t_start = time.perf_counter()
         self.addGeoCount = self.addGeoCount + 1
-        key = geometry.guid
-        # self.resetmodel()
-        # for i in range(10):
-        self.initnewdictitem(key, GLEntityType.TRIA)
-        nf = geometry.mesh.n_faces()
-        self.appenddictitemsize(key, nf)
-        self.allocatememory(key)
-        # tsAG1 = time.perf_counter()
-        # self.addMeshdata4oglmdl_bkp_silvio(key, geometry)
-        # self.addMeshdata4oglmdl(key, geometry, use_multiprocessing=False)
-        self.addMeshdata4oglmdl(key, geometry, use_multiprocessing=True)
-        # dtAG1 = time.perf_counter() - tsAG1
-        self.bindData(key)
+        # t_dill_start = time.perf_counter()
+        # programm_dilled = dill.dumps(self.program.bindAttributeLocation)
+        # t_dill_end = time.perf_counter()
+        # print("Time needed to dill glprogram {}".format(t_dill_end - t_dill_start))
 
-        # dtAG = time.perf_counter() - tsAG
-        # print("Add geometry time, s:", dtAG)
-        # print("addMeshdata4oglmdl time, s:", dtAG)
+        n_vaos = 1
+        mesh = geometry.mesh
+        if not mesh.has_face_normals():
+            mesh.request_face_normals()
+            mesh.update_face_normals()
+        ar_face_normals = mesh.face_normals()
+        ar_fv_indices = mesh.fv_indices().tolist()
+        ar_points = mesh.points().tolist()
+        n_faces = mesh.n_faces()
+
+        faces_per_vao = int(n_faces / n_vaos)
+
+        parent_geometry_key = geometry.guid
+        fv_sublists = [ar_fv_indices[vao_idx * faces_per_vao: (vao_idx + 1) * faces_per_vao] for vao_idx in range(n_vaos)]
+        normals_sublists = [ar_face_normals[vao_idx * faces_per_vao: (vao_idx + 1) * faces_per_vao] for vao_idx in range(n_vaos)]
+        c = [0.4, 1.0, 1.0, 1.0]
+        cstype = 0
+        face_colors = None
+        vertex_colors = None
+        keys = []
+        pool_args = []
+        manager = Manager()
+        queue = manager.Queue()
+        processes = []
+        for vao_idx, (fv_sublist, normal_sublists) in enumerate(zip(fv_sublists, normals_sublists)):
+            key = "{}_{:02d}".format(parent_geometry_key, vao_idx)
+            keys.append(key)
+            self.initnewdictitem(key, GLEntityType.TRIA)
+            nf = len(fv_sublist)
+            self.appenddictitemsize(key, nf)
+            self.allocatememory(key)
+            self._dentsvertsdata[key]._setVertexCounter(nf * 3 * self._multFactor)
+            args = [ar_points, fv_sublist, normal_sublists, face_colors, vertex_colors, c, cstype, self._showBack, queue, key]
+            pool_args.append(args)
+            p = Process(target=BasicPainter.createDictItemFromFaces_queue, args=(args,))
+            processes.append(p)
+            p.start()
+
+        for idx in range(n_vaos):
+            key, vertex_data, normal_data, color_data = queue.get()
+            self._dentsvertsdata[key].setlistdata_f3xyzf3nf4rgba(vertex_data, normal_data, color_data)
+            # self.bindData(key)
+
+        for p in processes:
+            p.join()
+
+        t_end = time.perf_counter()
+        print("Mesh data prepared in {}".format(t_end - t_start))
+
+        t_start = time.perf_counter()
+        for key in keys:
+            self.bindData(key)
+        t_end = time.perf_counter()
+        print("Data fed to ogl in {}".format(t_end - t_start))
+
+    @staticmethod
+    def createDictItemFromFaces_queue(args):
+        key = args[-1]
+        queue = args[-2]
+        vertex_data, normal_data, color_data = BasicPainter.createDictItemFromFaces(*args[:-2])
+        queue.put((key, vertex_data, normal_data, color_data))
+
+    @staticmethod
+    def createDictItemFromFaces(points, fvs, face_normals, face_colors, vertex_colors, c, cstype, show_back):
+        nf = len(fvs)
+        if show_back:
+            nf *= 2
+
+        # vertdata = VertDataCollectorCoord3fNormal3fColor4f(GLEntityType.TRIA)
+        # vertdata.appendsize(nf)
+        # vertdata.allocatememory()
+
+        # vertex_data = np.empty(nf * 9, dtype=np.float)
+        vertex_data = np.empty(nf * 9, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+        # normal_data = np.empty(nf * 9, dtype=np.float)
+        normal_data = np.empty(nf * 9, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+        # color_data = np.empty(nf * 12, dtype=np.float)
+        color_data = np.empty(nf * 12, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+
+        data3_idx = 0
+        data4_idx = 0
+        t_start = time.perf_counter()
+        if show_back:
+            data3_idx_back = 15
+            data4_idx_back = 20
+
+            for face_idx, (fv, n) in enumerate(zip(fvs, face_normals)):
+                if cstype == 1:
+                    c = face_colors[face_idx]
+
+                for iv in fv:
+                    p = points[iv]
+                    if cstype == 2:
+                        c = vertex_colors[iv]
+
+                    vertex_data[data3_idx] = p[0]
+                    vertex_data[data3_idx + 1] = p[1]
+                    vertex_data[data3_idx + 2] = p[2]
+
+                    normal_data[data3_idx] = n[0]
+                    normal_data[data3_idx + 1] = n[1]
+                    normal_data[data3_idx + 2] = n[2]
+
+                    color_data[data4_idx] = c[0]
+                    color_data[data4_idx + 1] = c[1]
+                    color_data[data4_idx + 2] = c[2]
+                    color_data[data4_idx + 3] = c[3]
+
+                    data3_idx += 3
+                    data4_idx += 4
+
+                    vertex_data[data3_idx_back] = p[0]
+                    vertex_data[data3_idx_back + 1] = p[1]
+                    vertex_data[data3_idx_back + 2] = p[2]
+
+                    normal_data[data3_idx_back] = -n[0]
+                    normal_data[data3_idx_back + 1] = -n[1]
+                    normal_data[data3_idx_back + 2] = -n[2]
+
+                    color_data[data4_idx_back] = c[0]
+                    color_data[data4_idx_back + 1] = c[1]
+                    color_data[data4_idx_back + 2] = c[2]
+                    color_data[data4_idx_back + 3] = c[3]
+
+                    data3_idx_back -= 3
+                    data4_idx_back -= 4
+
+                data3_idx += 9
+                data4_idx += 12
+
+                data3_idx_back += 27
+                data4_idx_back += 36
+
+        else:
+            for face_idx, (fv, n) in enumerate(zip(fvs, face_normals)):
+                n = face_normals[face_idx]
+                if cstype == 1:
+                    c = face_colors[face_idx]
+
+                for run_idx, iv in enumerate(fv):
+                    p = points[iv]
+                    if cstype == 2:
+                        c = vertex_colors[iv]
+
+                    vertex_data[data3_idx: data3_idx + 3] = p[0], p[1], p[2]
+                    normal_data[data3_idx: data3_idx + 3] = n[0], n[1], n[2]
+                    color_data[data4_idx: data4_idx + 4] = c[0], c[1], c[2], c[3]
+                    data3_idx += 3
+                    data4_idx += 4
+
+        # vertdata.setlistdata_f3xyzf3nf4rgba(vertex_data, normal_data, color_data)
+        # vertdata._setVertexCounter(nf * 3)
+
+        # vertdata.setupVertexAttribs(0)
+
+        # atrList = vertdata.GetAtrList()
+        # for ent in atrList:
+        #     self.program.bindAttributeLocation(ent[0], ent[1])
+
+        t_end = time.perf_counter()
+        print("Vertex data created in {}".format(t_end - t_start))
+        return vertex_data, normal_data, color_data
 
     def delayedRebuildGeometry(self, geometry: Geometry):
         key = geometry.guid
@@ -352,7 +505,7 @@ class BasicPainter(Painter):
                                                    c[0], c[1], c[2], c[3])
         return
 
-    def addMeshdata4oglmdl(self, key, geometry, use_multiprocessing):
+    def addMeshdata4oglmdl(self, key, geometry):
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 
@@ -387,16 +540,14 @@ class BasicPainter(Painter):
         n_faces = mesh.n_faces()
         ifhs = range(n_faces)
 
-        if use_multiprocessing:
-            self.addFaces_multiCore(key, ar_fv_indices, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors)
-        else:
-            self.addFaces_singleCore(key, ar_fv_indices, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors)
+        self.addFaces_singleCore(key, ar_fv_indices, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors)
 
         dtAMD = time.perf_counter() - tsAMD
         print("Add mesh data total:", dtAMD)
         return
 
-    def addFaces_multiCore(self, key, fvs, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors,
+    def addFaces_multiCore(self, key, fvs, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors,
+                           ar_vertex_colors,
                            multi_mode='pool'):
         n_faces = len(ifhs)
         n_cores = multiprocessing.cpu_count()
@@ -456,97 +607,6 @@ class BasicPainter(Painter):
         else:
             self._dentsvertsdata[key]._setVertexCounter(n_faces * 3)
 
-    @staticmethod
-    def addFaces_parallel(fvs, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors, show_back):
-        mult_factor = 1
-        if show_back:
-            mult_factor = 2
-        vertex_data, normal_data, color_data = np.empty(len(fvs) * 9 * mult_factor, dtype=np.float), \
-                                               np.empty(len(fvs) * 9 * mult_factor, dtype=np.float), \
-                                               np.empty(len(fvs) * 12 * mult_factor, dtype=np.float)
-        data3_idx = 0
-        data4_idx = 0
-        t_start = time.perf_counter()
-        if show_back:
-            data3_idx_back = 15
-            data4_idx_back = 20
-
-            for ifh, fv in zip(ifhs, fvs):
-                n = ar_face_normals[ifh]
-                if cstype == 1:
-                    c = ar_face_colors[ifh]
-
-                for run_idx, iv in enumerate(fv):
-                    p = ar_points[iv]
-                    if cstype == 2:
-                        c = ar_vertex_colors[iv]
-
-                    vertex_data[data3_idx] = p[0]
-                    vertex_data[data3_idx + 1] = p[1]
-                    vertex_data[data3_idx + 2] = p[2]
-
-                    normal_data[data3_idx] = n[0]
-                    normal_data[data3_idx + 1] = n[1]
-                    normal_data[data3_idx + 2] = n[2]
-
-                    color_data[data4_idx] = c[0]
-                    color_data[data4_idx + 1] = c[1]
-                    color_data[data4_idx + 2] = c[2]
-                    color_data[data4_idx + 3] = c[3]
-
-                    data3_idx += 3
-                    data4_idx += 4
-
-                    vertex_data[data3_idx_back] = p[0]
-                    vertex_data[data3_idx_back + 1] = p[1]
-                    vertex_data[data3_idx_back + 2] = p[2]
-
-                    normal_data[data3_idx_back] = -n[0]
-                    normal_data[data3_idx_back + 1] = -n[1]
-                    normal_data[data3_idx_back + 2] = -n[2]
-
-                    color_data[data4_idx_back] = c[0]
-                    color_data[data4_idx_back + 1] = c[1]
-                    color_data[data4_idx_back + 2] = c[2]
-                    color_data[data4_idx_back + 3] = c[3]
-
-                    data3_idx_back -= 3
-                    data4_idx_back -= 4
-
-                data3_idx += 9
-                data4_idx += 12
-
-                data3_idx_back += 27
-                data4_idx_back += 36
-        else:
-            for ifh, fv in zip(ifhs, fvs):
-                n = ar_face_normals[ifh]
-                if cstype == 1:
-                    c = ar_face_colors[ifh]
-
-                for run_idx, iv in enumerate(fv):
-                    p = ar_points[iv]
-                    if cstype == 2:
-                        c = ar_vertex_colors[iv]
-
-                    vertex_data[data3_idx: data3_idx + 3] = p[0], p[1], p[2]
-                    normal_data[data3_idx: data3_idx + 3] = n[0], n[1], n[2]
-                    color_data[data4_idx: data4_idx + 4] = c[0], c[1], c[2], c[3]
-                    data3_idx += 3
-                    data4_idx += 4
-
-        print("Process needed: {}".format(time.perf_counter() - t_start))
-        return vertex_data, normal_data, color_data
-
-    @staticmethod
-    def addFaces_parallelPool_wrapped(args):
-        return BasicPainter.addFaces_parallel(*args)
-
-    @staticmethod
-    def addFaces_parallelProcess_wrapped(args):
-        q = args[-2]
-        q.put((args[-1], BasicPainter.addFaces_parallel(*args[:-2])))
-
     def addFaces_singleCore(self, key, fvs, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors):
         data3_idx = 0
         data4_idx = 0
@@ -604,151 +664,6 @@ class BasicPainter(Painter):
         self._dentsvertsdata[key]._dVBOs['vertex'].update_idx()
         self._dentsvertsdata[key]._dVBOs['normal'].update_idx()
         self._dentsvertsdata[key]._dVBOs['color'].update_idx()
-
-    def addMeshdata4oglmdl_bkp_silvio(self, key, geometry):
-        tsAMD = time.perf_counter()
-        mesh = geometry.mesh
-        ar_fv_indices = mesh.fv_indices().tolist()
-        ar_points = mesh.points().tolist()
-
-        # color data
-        cstype = 0  # color source type
-        useMeshColor = True
-        if self.selType == 0:
-            if self._si.geometry.guid == geometry.guid:
-                c = [1.0, 0.0, 1.0, 1.0]
-                useMeshColor = False
-            else:
-                c = [0.4, 1.0, 1.0, 1.0]  # default color
-        elif useMeshColor and mesh.has_face_colors():
-            ar_face_colors = mesh.face_colors()
-            cstype = 1
-        elif useMeshColor and mesh.has_vertex_colors():
-            ar_vertex_colors = mesh.vertex_colors()
-            cstype = 2
-        else:
-            c = [0.4, 1.0, 1.0, 1.0]  # default color
-
-        # normals data
-        if not mesh.has_face_normals():  # normals are necessary for correct lighting effect
-            mesh.request_face_normals()
-            mesh.update_face_normals()
-        ar_face_normals = mesh.face_normals()
-
-        nf = mesh.n_faces()
-
-        ifh = 0
-        for ifh in range(nf):
-            fv = ar_fv_indices[ifh]
-            pp = []
-            cc = []
-            nn = []
-            n = ar_face_normals[ifh]
-            if cstype == 1:
-                c = ar_face_colors[ifh]
-
-            for iv in fv:
-                p = ar_points[iv]
-                if cstype == 2:
-                    c = ar_vertex_colors[iv]
-
-                if self._showBack:
-                    pp.append(p)
-                    nn.append(n)
-                    cc.append(c)
-
-                self.appendlistdata_f3xyzf3nf4rgba(key,
-                                                   p[0], p[1], p[2],
-                                                   n[0], n[1], n[2],
-                                                   c[0], c[1], c[2], c[3])
-
-            if self._showBack:
-                nv = len(pp)
-                for iv in range(nv):
-                    ivi = nv - 1 - iv
-                    self.appendlistdata_f3xyzf3nf4rgba(key,
-                                                       pp[ivi][0], pp[ivi][1], pp[ivi][2],
-                                                       -nn[ivi][0], -nn[ivi][1], -nn[ivi][2],
-                                                       cc[ivi][0], cc[ivi][1], cc[ivi][2], cc[ivi][3])
-        dtAMD = time.perf_counter() - tsAMD
-        print("Add mesh data total:", dtAMD)
-        return
-
-        for fh in mesh.faces():
-            pp = []
-            cc = []
-            nn = []
-
-            n = mesh.normal(fh)
-
-            if useMeshColor and mesh.has_face_colors():
-                c = mesh.color(fh)
-            for vh in mesh.fv(fh):  # vertex handle
-                vit = mesh.vv(vh)  # iterator
-                p = mesh.point(vh)
-                if useMeshColor and mesh.has_vertex_colors():
-                    c = mesh.color(vh)
-                iv = 0
-                if self._showBack:
-                    pp.append(p)
-                    nn.append(n)
-                    cc.append(c)
-                self.appendlistdata_f3xyzf3nf4rgba(key,
-                                                   p[0], p[1], p[2],
-                                                   n[0], n[1], n[2],
-                                                   c[0], c[1], c[2], c[3])
-            if self._showBack:
-                nv = len(pp)
-                for iv in range(nv):
-                    ivi = nv - 1 - iv
-                    self.appendlistdata_f3xyzf3nf4rgba(key,
-                                                       pp[ivi][0], pp[ivi][1], pp[ivi][2],
-                                                       -nn[ivi][0], -nn[ivi][1], -nn[ivi][2],
-                                                       cc[ivi][0], cc[ivi][1], cc[ivi][2], cc[ivi][3])
-
-        return
-
-    def addMeshdata4oglmdl_bkp(self, key, geometry):
-        isGeometrySelected = not self._si.isEmpty()
-        if isGeometrySelected:
-            isGeometrySelected = self._si.geometry is geometry
-        mesh = geometry.mesh
-        if not mesh.has_face_normals():  # normals are necessary for correct lighting effect
-            mesh.request_face_normals()
-            mesh.update_face_normals();
-        nf = mesh.n_faces()
-        verts = mesh.vertices()
-        if not mesh.has_face_colors() and not mesh.has_vertex_colors():
-            c = [0.4, 1.0, 1.0, 1.0]  # default color
-        for fh in mesh.faces():
-            n = mesh.normal(fh)
-            if isGeometrySelected and self._si.getFace() is fh:
-                c1 = [1.0, 0.0, 1.0, 1.0]
-                for vh in mesh.fv(fh):  # vertex handle
-                    vit = mesh.vv(vh)  # iterator
-                    p = mesh.point(vh)
-                    if mesh.has_vertex_colors():
-                        c = mesh.color(vh)
-                    iv = 0
-                    self.appendlistdata_f3xyzf3nf4rgba(key,
-                                                       p[0], p[1], p[2],
-                                                       n[0], n[1], n[2],
-                                                       c1[0], c1[1], c1[2], c1[3])
-                isGeometrySelected = False
-            else:
-                if mesh.has_face_colors():
-                    c = mesh.color(fh)
-                for vh in mesh.fv(fh):  # vertex handle
-                    vit = mesh.vv(vh)  # iterator
-                    p = mesh.point(vh)
-                    if mesh.has_vertex_colors():
-                        c = mesh.color(vh)
-                    iv = 0
-                    self.appendlistdata_f3xyzf3nf4rgba(key,
-                                                       p[0], p[1], p[2],
-                                                       n[0], n[1], n[2],
-                                                       c[0], c[1], c[2], c[3])
-        return
 
     @Slot()
     def onSelected(self, si: SelectionInfo):
