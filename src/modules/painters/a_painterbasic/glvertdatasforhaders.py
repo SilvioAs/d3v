@@ -64,7 +64,8 @@ class VertDataCollectorVAO(VertDataCollector):
             print("Error: VAO not created!")
         self._vao.bind()
 
-        glfunctions.glDrawArrays(self.oglprimtype(), 0, self.numvertices())
+        draw_type = self.oglprimtype()
+        glfunctions.glDrawArrays(draw_type, 0, self.numvertices())
         self._vao.release()
 
     def appendsize(self, numents):
@@ -133,6 +134,62 @@ class VertDataCollectorVAO(VertDataCollector):
         for key, value in self._dVBOs.items():
             value.free()
         self._vao.destroy()
+
+
+class VertDataCollectorCoord3fColor4f(VertDataCollectorVAO):
+    """!
+    VertDataCollectorCoord3fColor4ub class
+
+    Data collector class collects all vertex data necessary for drawing a group of entities that share the same type.
+    Three floats are used for the position (xyz), while four ubyte are used for color (r,g,b,a)
+    Possible primitive types are defined by the enum (pyD3VOGLModel.GLEntityType)
+    """
+
+    def __init__(self, enttype):
+        """!
+        VertDataCollectorCoord3fColor4ub constructor
+
+
+        """
+        super().__init__(enttype)
+
+    def appendlistdata_f3xyzf4rgba(self, x, y, z, r, g, b, a):
+        """!
+        Append Vertex collector dictionary item with new vertex data
+
+        @param x: (\b float) x coordinate
+        @param y: (\b float) y coordinate
+        @param z: (\b float) z coordinate
+        @param n[0]- nx: (\b float) red chanel 0-1
+        @param n[1]- ny: (\b float) green chanel 0-1
+        @param n[2]- nz (\b float) blue chanel 0-1
+        @retval: (\b int) index of the added vertex
+        """
+
+        self._appendlistdata_f3("vertex", x, y, z)
+        self._appendlistdata_f4("color", r, g, b, a)
+        return self._incrementVertexCounter()
+
+    def allocatememory(self):
+        """!
+        Allocate memory for the vertex data channels
+
+        Allocation size is based on the information collected by client calls to appendsize()
+        """
+        ndata = 3  # x,y,z
+        self._allocateattribmemory(GLDataType.FLOAT, ndata, 0, "vertex")
+        ndata = 4  # r,g,b,a
+        self._allocateattribmemory(GLDataType.FLOAT, ndata, 1, "color")
+
+    def clone(self):
+        """!
+        Clone the instance of VertDataCollectorCoord3fColor4ub class
+
+        Overrides the base class abstract method
+        @retval: (VertDataCollectorCoord3fColor4ub) clon
+        """
+        vdc = VertDataCollectorCoord3fColor4f(self._enttype)
+        return vdc
 
 
 class VertDataCollectorCoord3fNormal3f(VertDataCollectorVAO):
