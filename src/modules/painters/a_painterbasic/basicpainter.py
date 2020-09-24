@@ -5,7 +5,7 @@ from PySide2.QtGui import QSurfaceFormat
 from PySide2.QtWidgets import QMessageBox
 from painters import Painter
 from signals import Signals, DragInfo
-from glvertdatasforhaders import VertDataCollectorCoord3fNormal3fColor4f
+from glvertdatasforhaders import VertDataCollectorCoord3fNormal3fColor4f, VertDataCollectorCoord3fColor4f
 from glhelp import GLEntityType, GLHelpFun, GLDataType
 from OpenGL import GL
 from PySide2.QtCore import QCoreApplication
@@ -45,11 +45,21 @@ class BasicPainter(Painter):
         self.addGeoCount = 0
         Signals.get().selectionChanged.connect(self.onSelected)
         self.paintDevice = 0
-        self.selType = 0  # 0 - geometry
+        # self.selType = 0  # 0 - geometry
         self.selType = 1  # 1 - facet
+        # self.selType = 2 # 2 - geometry by shader2
         self._showBack = False
         self._multFactor = 1
         self.showBack = True
+
+        self._selectedGeo2Add = []
+        self.selectionProgram = 0
+        self.vertexSelectionShader = self.vertexSelectionShaderSource()
+        self.fragmentSelectionShader = self.fragmentSelectionShaderSource()
+        self.projMatrixLoc_selection = 0
+        self.mvMatrixLoc_selection = 0
+        self.normalMatrixLoc_selection = 0
+        self.lightPosLoc_selection = 0
 
     @property
     def showBack(self):
@@ -88,6 +98,17 @@ class BasicPainter(Painter):
         self.lightPosLoc = self.program.uniformLocation("lightPos")
         self.program.release()
 
+        self.selectionProgram = QOpenGLShaderProgram()
+        self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexSelectionShader)
+        self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentSelectionShader)
+        self.selectionProgram.link()
+        self.selectionProgram.bind()
+        self.projMatrixLoc_selection = self.selectionProgram.uniformLocation("projMatrix")
+        self.mvMatrixLoc_selection = self.selectionProgram.uniformLocation("mvMatrix")
+        self.normalMatrixLoc_selection = self.selectionProgram.uniformLocation("normalMatrix")
+        self.lightPosLoc_selection = self.selectionProgram.uniformLocation("lightPos")
+        self.selectionProgram.release()
+
     def setprogramvalues(self, proj, mv, normalMatrix, lightpos):
         self.program.bind()
         self.program.setUniformValue(self.lightPosLoc, lightpos)
@@ -96,16 +117,30 @@ class BasicPainter(Painter):
         self.program.setUniformValue(self.normalMatrixLoc, normalMatrix)
         self.program.release()
 
+        # if self.selected:
+        self.selectionProgram.bind()
+        self.selectionProgram.setUniformValue(self.lightPosLoc_selection, lightpos)
+        self.selectionProgram.setUniformValue(self.projMatrixLoc_selection, proj)
+        self.selectionProgram.setUniformValue(self.mvMatrixLoc_selection, mv)
+        self.selectionProgram.setUniformValue(self.normalMatrixLoc_selection, normalMatrix)
+        self.selectionProgram.release()
+
     def paintGL(self):
         super().paintGL()
         self.glf.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         self.glf.glEnable(GL.GL_DEPTH_TEST)
         self.glf.glEnable(GL.GL_CULL_FACE)
         # self.glf.glDisable(GL.GL_CULL_FACE)
-        self.program.bind()
+
         for key, value in self._dentsvertsdata.items():
-            value.drawvao(self.glf)
-        self.program.release()
+            if (key == self._si.geometry._guid) and (self.selType == 2):
+                self.selectionProgram.bind()
+                value.drawvao(self.glf)
+                self.selectionProgram.release()
+            else:
+                self.program.bind()
+                value.drawvao(self.glf)
+                self.program.release()
 
     def resizeGL(self, w: int, h: int):
         super().resizeGL(w, h)
@@ -144,6 +179,9 @@ class BasicPainter(Painter):
 
         self._dentsvertsdata[key] = VertDataCollectorCoord3fNormal3fColor4f(enttype)
 
+    def initnewdictitem_withoutN(self, key, enttype):
+        self._dentsvertsdata[key] = VertDataCollectorCoord3fColor4f(enttype)
+
     def appendlistdata_f3xyzf3nf4rgba(self, key, x, y, z, nx, ny, nz, r, g, b, a):
         """!
         Append Vertex collector dictionary item with new vertex data
@@ -158,6 +196,9 @@ class BasicPainter(Painter):
         """
         return self._dentsvertsdata[key].appendlistdata_f3xyzf3nf4rgba(x, y, z, nx, ny, nz, r, g, b, a)
 
+    def appendlistdata_f3xyzf4rgba(self, key, x, y, z, r, g, b, a):
+        return self._dentsvertsdata[key].appendlistdata_f3xyzf4rgba(x, y, z, r, g, b, a)
+
     def appenddictitemsize(self, key, numents):
         """!
         Append dictionary item size with the specified number of entities
@@ -165,6 +206,9 @@ class BasicPainter(Painter):
         :@param numents:(\b int) number of entities to be added
         """
         self._dentsvertsdata[key].appendsize(numents * self._multFactor)
+
+    def appenddictitemsize_line(self, key, numents):
+        pass
 
     def allocatememory(self):
         """!
@@ -251,6 +295,36 @@ class BasicPainter(Painter):
                    gl_FragColor = vec4(col, colorV.a);
                 }"""
 
+    def vertexSelectionShaderSource(self):
+        return """attribute vec4 vertex;
+                attribute vec3 normal;
+                attribute vec4 color;
+                varying vec3 vert;
+                varying vec3 vertNormal;
+                varying vec4 colorV;
+                uniform mat4 projMatrix;
+                uniform mat4 mvMatrix;
+                uniform mat3 normalMatrix;
+                void main() {
+                   vert = vertex.xyz;
+                   vertNormal = normalMatrix * normal;
+                   gl_Position = projMatrix * mvMatrix * vertex;
+                   colorV = color;
+                }"""
+
+    def fragmentSelectionShaderSource(self):
+        return """varying highp vec3 vert;
+                        varying highp vec3 vertNormal;
+                        // varying highp vec4 colorV; 
+                        uniform highp vec3 lightPos;
+                        const highp vec4 selectionColor = vec4(1.0, 0.0, 1.0, 1.0);
+                        void main() {
+                           highp vec3 L = normalize(lightPos - vert);
+                           highp float NL = max(dot(normalize(vertNormal), L), 0.0);
+                           highp vec3 col = clamp(selectionColor.xyz * 0.2 + selectionColor.xyz * 0.8 * NL, 0.0, 1.0);
+                           gl_FragColor = vec4(col, selectionColor.w);
+                        }"""
+
     # Painter methods implementation code ********************************************************
 
     def addGeometry(self, geometry: Geometry):
@@ -303,7 +377,7 @@ class BasicPainter(Painter):
         self.removeDictItem(key)
 
     def addSelection(self):
-        if self.selType == 0:
+        if (self.selType == 0) or (self.selType == 2):
             pass
         else:
             key = 0
@@ -314,6 +388,21 @@ class BasicPainter(Painter):
                 self.appenddictitemsize(key, nf)
                 self.allocatememory(key)
                 self.addSelData4oglmdl(key, self._si, self._si.geometry)
+                self.bindData(key)
+
+    def addSelection_line(self):
+        if (self.selType == 0) or (self.selType == 2):
+            pass
+        else:
+            key = 0
+            self.removeDictItem(key)
+            if self._si.haveSelection():
+                self.initnewdictitem(key, GLEntityType.LINE)
+                GL.glLineWidth(3.0)
+                nf = self._si.nFaces() * 3
+                self.appenddictitemsize(key, nf)
+                self.allocatememory(key)
+                self.addSelData4oglmdl_line(key, self._si, self._si.geometry)
                 self.bindData(key)
 
     def updateGeometry(self):
@@ -330,26 +419,68 @@ class BasicPainter(Painter):
                 self.delayedRebuildGeometry(geometry)
             self._geo2Rebuild.clear()
         if self._doSelection:
-            self.addSelection()
+            self.addSelection_line()
             self._doSelection = False
 
     def addSelData4oglmdl(self, key, si, geometry):
         mesh = geometry.mesh
+        normals = mesh.face_normals().tolist()
+        points = mesh.points().tolist()
+        face_indices = mesh.fv_indices().tolist()
         for fh in si.allfaces:
-            n = mesh.normal(fh)
+            # n = mesh.normal(fh)
+            n = normals[fh]
             c = [1.0, 0.0, 1.0, 1.0]
-            for vh in mesh.fv(fh):  # vertex handle
-                p = mesh.point(vh)
+            # for vh in mesh.fv(fh):  # vertex handle
+            for vh in face_indices[fh]:
+                p = points[vh]
+                # p = mesh.point(vh)
+                # to compensate z-fight
                 self.appendlistdata_f3xyzf3nf4rgba(key,
                                                    p[0] + n[0] / 100, p[1] + n[1] / 100, p[2] + n[2] / 100,
                                                    n[0], n[1], n[2],
                                                    c[0], c[1], c[2], c[3])
-            for vh in mesh.fv(fh):  # vertex handle
-                p = mesh.point(vh)
+            for vh in face_indices[fh]:
+                p = points[vh]
+                # for vh in mesh.fv(fh):  # vertex handle
+                #     p = mesh.point(vh)
+                # to compensate z-fight
                 self.appendlistdata_f3xyzf3nf4rgba(key,
                                                    p[0] - n[0] / 100, p[1] - n[1] / 100, p[2] - n[2] / 100,
                                                    n[0], n[1], n[2],
                                                    c[0], c[1], c[2], c[3])
+        return
+
+    def addSelData4oglmdl_line(self, key, si, geometry):
+        mesh = geometry.mesh
+        normals = mesh.face_normals().tolist()
+        points = mesh.points().tolist()
+        face_indices = mesh.fv_indices().tolist()
+        for fh in si.allfaces:
+            n = normals[fh]
+            c = [1.0, 0.0, 1.0, 1.0]
+
+            vertex_indices = face_indices[fh]
+            vertex_indices2 = [vertex_indices[1], vertex_indices[2], vertex_indices[0]]
+            for vh_start, vh_end in zip(vertex_indices, vertex_indices2):
+                p_s = points[vh_start]
+                p_e = points[vh_end]
+
+                self.appendlistdata_f3xyzf3nf4rgba(key,
+                                                   p_s[0], p_s[1], p_s[2],
+                                                   n[0], n[1], n[2],
+                                                   c[0], c[1], c[2], c[3])
+                self.appendlistdata_f3xyzf3nf4rgba(key,
+                                                   p_e[0], p_e[1], p_e[2],
+                                                   n[0], n[1], n[2],
+                                                   c[0], c[1], c[2], c[3])
+                # self.appendlistdata_f3xyzf4rgba(key,
+                #                                    p_s[0], p_s[1], p_s[2],
+                #                                    c[0], c[1], c[2], c[3])
+                # self.appendlistdata_f3xyzf4rgba(key,
+                #                                    p_e[0], p_e[1], p_e[2],
+                #                                    c[0], c[1], c[2], c[3])
+
         return
 
     def addMeshdata4oglmdl(self, key, geometry, use_multiprocessing):
@@ -753,24 +884,45 @@ class BasicPainter(Painter):
     @Slot()
     def onSelected(self, si: SelectionInfo):
         if self.selType == 0:  # whole geometry selection
+            # self._si: old geometry
+            # si: new geometry
             if self._si.haveSelection() and si.haveSelection():
+                # When new and old geometries are selected and their keys are different, both geometries will be drawn again
+                # Because old selected geometry has to be drawn in blue
+                # And new geometry has to be drawn in pink
                 if self._si.geometry._guid != si.geometry._guid:
                     self._geo2Remove.append(si.geometry)
                     self._geo2Remove.append(self._si.geometry)
                     self._geo2Add.append(self._si.geometry)
                     self._geo2Add.append(si.geometry)
                     self.requestGLUpdate()
+
             elif si.haveSelection():
+                # Blue is removed and pink is added
+                # self._geo2Remove.append(si.geometry)
+                # self._geo2Add.append(si.geometry)
+                # self.requestGLUpdate()
                 self._geo2Remove.append(si.geometry)
                 self._geo2Add.append(si.geometry)
                 self.requestGLUpdate()
+
             elif self._si.haveSelection():
+                # Nothing new is selected and only old geometry will be redrawn
+                # self._geo2Remove.append(self._si.geometry)
+                # self._geo2Add.append(self._si.geometry)
+                # self.requestGLUpdate()
                 self._geo2Remove.append(self._si.geometry)
                 self._geo2Add.append(self._si.geometry)
                 self.requestGLUpdate()
+
             self._si = si
-        else:
+
+        elif self.selType == 1:
             self._doSelection = True
             self._si = si
             self.requestGLUpdate()
+
+        elif self.selType == 2:
+            self._si = si
+
         pass
