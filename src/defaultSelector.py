@@ -171,12 +171,12 @@ class SubDivBoxTree(dmnsn_aabb):
         self.name = ""
 
     def createTreeRoot(self, box:BBox):
-        # return self.createTreeRoot_parallel(box)
-        return self.createTreeRoot_recursive(box)
+        return self.createTreeRoot_parallel(box)
+        # return self.createTreeRoot_recursive(box)
 
     def getIntersectedLeafs(self, optray, t, intrsectleafs):
-        # return self.getIntersectedLeafs_parallel(optray, t, intrsectleafs)
-        return self.getIntersectedLeafs_recursive(optray, t, intrsectleafs)
+        return self.getIntersectedLeafs_parallel(optray, t, intrsectleafs)
+        # return self.getIntersectedLeafs_recursive(optray, t, intrsectleafs)
 
     def getIntersectedLeafs_recursive(self, optray, t, intrsectLeafs):
         if self.dmnsn_ray_box_intersection(optray, t):
@@ -246,6 +246,7 @@ class SubDivBoxTree(dmnsn_aabb):
         print("Pool done")
         for nodes in nodes_per_core:
             for node in nodes:
+                node.mesh = self.mesh
                 end_nodes.append(node)
 
         self.node_list = end_nodes
@@ -331,7 +332,10 @@ class SubDivBoxTree(dmnsn_aabb):
         return cb
 
     def createTreeRoot_recursive(self, box: BBox):
-        # pass
+        if not self.mesh.has_face_normals():
+            self.mesh.request_face_normals()
+            self.mesh.update_face_normals()
+
         ar_fv_indices = self.mesh.fv_indices().tolist()
         ar_points = self.mesh.points().tolist()
         # self.createTreeRootList(box)
@@ -517,22 +521,6 @@ class SubDivBoxTree(dmnsn_aabb):
         return cgVect
 
 
-def dill_second_level_subdivide(dill_args):
-    print("Started second_level_subdivide")
-    args = dill.loads(dill_args)
-    SubDivBoxTree.second_level_subdivide(*args)
-
-def run_dill_encoded(payload):
-    function, args = dill.loads(payload)
-    return function(*args)
-
-
-def apply_async(pool, function, args):
-    payload = dill.dumps((function, args))
-    return pool.apply_async(run_dill_encoded, (payload,))
-
-
-
 class DefaultSelector(Selector):
     def __init__(self):
         super().__init__()
@@ -571,6 +559,7 @@ class DefaultSelector(Selector):
         # selected je selected geometry
         # si je SelectionInfo --> sadrzi podatke o selekciji
 
+        # Looks for geometry with shortest distance and gives it to
         if len(sis) > 0:
             si = sis[0]
             i = 1
