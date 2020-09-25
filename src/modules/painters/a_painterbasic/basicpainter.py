@@ -29,6 +29,7 @@ class SelModes:
     S_FULL_SHADER = 2
     WF_FULL = 3
     S_FACET = 4
+    WF_FULL_POLYMODE = 5
 
 
 class BasicPainter(Painter):
@@ -57,7 +58,8 @@ class BasicPainter(Painter):
         # self.selType = SelModes.WF_FACET  # 1 - facet by wireframe
         # self.selType = SelModes.S_FULL_SHADER # 2 - full geometry by shader2
         # self.selType = SelModes.WF_FULL  # 3 - full geometry by wireframe
-        self.selType = SelModes.S_FACET  # Facet by filled triangle with z-fight compensation
+        # self.selType = SelModes.S_FACET  # Facet by filled triangle with z-fight compensation
+        self.selType = SelModes.WF_FULL_POLYMODE  # Full geometry by PolygonMode
         self._showBack = False
         self._multFactor = 1
         self.showBack = True
@@ -116,7 +118,7 @@ class BasicPainter(Painter):
         self.program.release()
 
         # Shader for selection
-        if self.selType == SelModes.S_FULL_SHADER:
+        if self.selType in [SelModes.S_FULL_SHADER, SelModes.WF_FULL_POLYMODE]:
             self.selectionProgram = QOpenGLShaderProgram()
             self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexSelectionShader)
             self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentSelectionShader)
@@ -141,6 +143,8 @@ class BasicPainter(Painter):
             # self.lightPosLoc_wireframe = self.wireframeProgram.uniformLocation("lightPos")
             self.wireframeProgram.release()
 
+
+
     def setprogramvalues(self, proj, mv, normalMatrix, lightpos):
         self.program.bind()
         self.program.setUniformValue(self.lightPosLoc, lightpos)
@@ -149,7 +153,7 @@ class BasicPainter(Painter):
         self.program.setUniformValue(self.normalMatrixLoc, normalMatrix)
         self.program.release()
 
-        if self.selType == SelModes.S_FULL_SHADER:
+        if self.selType in [SelModes.S_FULL_SHADER, SelModes.WF_FULL_POLYMODE]:
             self.selectionProgram.bind()
             self.selectionProgram.setUniformValue(self.lightPosLoc_selection, lightpos)
             self.selectionProgram.setUniformValue(self.projMatrixLoc_selection, proj)
@@ -174,13 +178,27 @@ class BasicPainter(Painter):
 
         for key, value in self._dentsvertsdata.items():
             if (key == self._si.geometry._guid) and (self.selType == SelModes.S_FULL_SHADER):
+                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
                 self.selectionProgram.bind()
                 value.drawvao(self.glf)
                 self.selectionProgram.release()
+                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
+
             elif (key == 0) and (self.selType in [SelModes.WF_FULL, SelModes.WF_FACET]):
                 self.wireframeProgram.bind()
                 value.drawvao(self.glf)
                 self.wireframeProgram.release()
+
+            elif (key == self._si.geometry._guid) and (self.selType == SelModes.WF_FULL_POLYMODE):
+                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
+                self.selectionProgram.bind()
+                value.drawvao(self.glf)
+                self.selectionProgram.release()
+                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
+                self.program.bind()
+                value.drawvao(self.glf)
+                self.program.release()
+
             else:
                 self.program.bind()
                 value.drawvao(self.glf)
@@ -1003,7 +1021,7 @@ class BasicPainter(Painter):
             self._si = si
             self.requestGLUpdate()
 
-        elif self.selType == SelModes.S_FULL_SHADER:
+        elif self.selType in [SelModes.S_FULL_SHADER, SelModes.WF_FULL_POLYMODE]:
             self._si = si
 
         pass
