@@ -143,8 +143,6 @@ class BasicPainter(Painter):
             # self.lightPosLoc_wireframe = self.wireframeProgram.uniformLocation("lightPos")
             self.wireframeProgram.release()
 
-
-
     def setprogramvalues(self, proj, mv, normalMatrix, lightpos):
         self.program.bind()
         self.program.setUniformValue(self.lightPosLoc, lightpos)
@@ -154,6 +152,7 @@ class BasicPainter(Painter):
         self.program.release()
 
         if self.selType in [SelModes.S_FULL_SHADER, SelModes.WF_FULL_POLYMODE]:
+            # GL.glLineWidth(3.0)
             self.selectionProgram.bind()
             self.selectionProgram.setUniformValue(self.lightPosLoc_selection, lightpos)
             self.selectionProgram.setUniformValue(self.projMatrixLoc_selection, proj)
@@ -162,6 +161,7 @@ class BasicPainter(Painter):
             self.selectionProgram.release()
 
         if self.selType in [SelModes.WF_FACET, SelModes.WF_FULL]:
+            # GL.glLineWidth(3.0)
             self.wireframeProgram.bind()
             # self.wireframeProgram.setUniformValue(self.lightPosLoc_wireframe, lightpos)
             self.wireframeProgram.setUniformValue(self.projMatrixLoc_wireframe, proj)
@@ -178,11 +178,9 @@ class BasicPainter(Painter):
 
         for key, value in self._dentsvertsdata.items():
             if (key == self._si.geometry._guid) and (self.selType == SelModes.S_FULL_SHADER):
-                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
                 self.selectionProgram.bind()
                 value.drawvao(self.glf)
                 self.selectionProgram.release()
-                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
 
             elif (key == 0) and (self.selType in [SelModes.WF_FULL, SelModes.WF_FACET]):
                 self.wireframeProgram.bind()
@@ -441,7 +439,7 @@ class BasicPainter(Painter):
         # tsAG1 = time.perf_counter()
         # self.addMeshdata4oglmdl_bkp_silvio(key, geometry)
         # self.addMeshdata4oglmdl(key, geometry, use_multiprocessing=False)
-        self.addMeshdata4oglmdl(key, geometry, use_multiprocessing=True)
+        self.addMeshdata4oglmdl(key, geometry, add_mesh_mode='array_opt')
         # dtAG1 = time.perf_counter() - tsAG1
         self.bindData(key)
 
@@ -485,7 +483,6 @@ class BasicPainter(Painter):
             self.removeDictItem(key)
             if self._si.haveSelection():
                 self.initnewdictitem(key, GLEntityType.LINE)
-                GL.glLineWidth(3.0)
                 if self.selType == SelModes.WF_FACET:
                     nf = self._si.nFaces() * 3
                 else:
@@ -582,7 +579,7 @@ class BasicPainter(Painter):
 
         return
 
-    def addMeshdata4oglmdl(self, key, geometry, use_multiprocessing):
+    def addMeshdata4oglmdl(self, key, geometry, add_mesh_mode='multiprocessing'):
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 
@@ -609,7 +606,7 @@ class BasicPainter(Painter):
         if not mesh.has_face_normals():  # normals are necessary for correct lighting effect
             mesh.request_face_normals()
             mesh.update_face_normals()
-        ar_face_normals = mesh.face_normals()
+        ar_face_normals = mesh.face_normals().tolist()
 
         ar_fv_indices = mesh.fv_indices().tolist()
         ar_points = mesh.points().tolist()
@@ -617,10 +614,12 @@ class BasicPainter(Painter):
         n_faces = mesh.n_faces()
         ifhs = range(n_faces)
 
-        if use_multiprocessing:
+        if add_mesh_mode == 'multiprocessing':
             self.addFaces_multiCore(key, ar_fv_indices, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors)
-        else:
+        elif add_mesh_mode == 'single_core':
             self.addFaces_singleCore(key, ar_fv_indices, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors)
+        else:
+            self.addMeshdata4oglmdl_byArrayOps_singleColor(key, ar_fv_indices, ar_points, ar_face_normals, cstype, c, ar_face_colors, ar_vertex_colors)
 
         dtAMD = time.perf_counter() - tsAMD
         print("Add mesh data total:", dtAMD)
@@ -834,6 +833,46 @@ class BasicPainter(Painter):
         self._dentsvertsdata[key]._dVBOs['vertex'].update_idx()
         self._dentsvertsdata[key]._dVBOs['normal'].update_idx()
         self._dentsvertsdata[key]._dVBOs['color'].update_idx()
+
+    def addMeshdata4oglmdl_byArrayOps_singleColor(self, key, ar_fv_indices, ar_points, ar_face_normals, cstype, c, ar_face_colors, ar_vertex_colors):
+        n_faces = len(ar_fv_indices)
+        ar_points = np.array(ar_points)
+
+        fv_indices_np = np.array(ar_fv_indices)
+        fv_indices_flattened = fv_indices_np.flatten()
+        mesh_points = ar_points[fv_indices_flattened]
+        data_mesh_points = mesh_points.flatten()
+
+        face_normals_np = np.array(ar_face_normals)
+        mesh_normals = np.repeat(face_normals_np, 3, axis=0)
+        data_mesh_normals = mesh_normals.flatten()
+
+        mesh_colors = np.tile(c, n_faces * 3)
+        data_mesh_colors = mesh_colors.flatten()
+
+        if self._showBack:
+            reversed_mesh_points = ar_points[fv_indices_flattened[::-1]]
+            reversed_mesh_points = reversed_mesh_points.flatten()
+
+            reversed_normals = -face_normals_np[::-1]
+            reversed_normals = np.repeat(reversed_normals, 3, axis=0)
+            reversed_normals = reversed_normals.flatten()
+
+            data_mesh_points = np.concatenate([data_mesh_points, reversed_mesh_points])
+            data_mesh_normals = np.concatenate([data_mesh_normals, reversed_normals])
+            data_mesh_colors = np.concatenate([data_mesh_colors, data_mesh_colors])
+
+        vertex_data = np.array(data_mesh_points, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+        normal_data = np.array(data_mesh_normals, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+        color_data = np.array(data_mesh_colors, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+
+        self._dentsvertsdata[key].setlistdata_f3xyzf3nf4rgba(vertex_data, normal_data, color_data)
+        if self._showBack:
+            self._dentsvertsdata[key]._setVertexCounter(n_faces * 3 * 2)
+        else:
+            self._dentsvertsdata[key]._setVertexCounter(n_faces * 3)
+
+        # print("Breakpoint")
 
     def addMeshdata4oglmdl_bkp_silvio(self, key, geometry):
         tsAMD = time.perf_counter()
