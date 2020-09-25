@@ -23,6 +23,14 @@ from multiprocessing import Pool, Process, Manager, Queue, Array
 import multiprocessing
 
 
+class SelModes:
+    S_FULL_MESH = 0
+    WF_FACET = 1
+    S_FULL_SHADER = 2
+    WF_FULL = 3
+    S_FACET = 4
+
+
 class BasicPainter(Painter):
     def __init__(self):
         super().__init__()
@@ -45,14 +53,15 @@ class BasicPainter(Painter):
         self.addGeoCount = 0
         Signals.get().selectionChanged.connect(self.onSelected)
         self.paintDevice = 0
-        # self.selType = 0  # 0 - geometry
-        self.selType = 1  # 1 - facet
-        # self.selType = 2 # 2 - geometry by shader2
+        # self.selType = SelModes.S_FULL_MESH  # 0 - full geometry by addMeshData
+        # self.selType = SelModes.WF_FACET  # 1 - facet by wireframe
+        # self.selType = SelModes.S_FULL_SHADER # 2 - full geometry by shader2
+        # self.selType = SelModes.WF_FULL  # 3 - full geometry by wireframe
+        self.selType = SelModes.S_FACET  # Facet by filled triangle with z-fight compensation
         self._showBack = False
         self._multFactor = 1
         self.showBack = True
 
-        self._selectedGeo2Add = []
         self.selectionProgram = 0
         self.vertexSelectionShader = self.vertexSelectionShaderSource()
         self.fragmentSelectionShader = self.fragmentSelectionShaderSource()
@@ -60,6 +69,14 @@ class BasicPainter(Painter):
         self.mvMatrixLoc_selection = 0
         self.normalMatrixLoc_selection = 0
         self.lightPosLoc_selection = 0
+
+        self.wireframeProgram = 0
+        self.vertexWireframeShader = self.vertexWireframeShaderSource()
+        self.fragmentWireframeShader = self.fragmentWireframeShaderSource()
+        self.projMatrixLoc_wireframe = 0
+        self.mvMatrixLoc_wireframe = 0
+        # self.normalMatrixLoc_wireframe = 0
+        # self.lightPosLoc_wireframe = 0
 
     @property
     def showBack(self):
@@ -98,16 +115,31 @@ class BasicPainter(Painter):
         self.lightPosLoc = self.program.uniformLocation("lightPos")
         self.program.release()
 
-        self.selectionProgram = QOpenGLShaderProgram()
-        self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexSelectionShader)
-        self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentSelectionShader)
-        self.selectionProgram.link()
-        self.selectionProgram.bind()
-        self.projMatrixLoc_selection = self.selectionProgram.uniformLocation("projMatrix")
-        self.mvMatrixLoc_selection = self.selectionProgram.uniformLocation("mvMatrix")
-        self.normalMatrixLoc_selection = self.selectionProgram.uniformLocation("normalMatrix")
-        self.lightPosLoc_selection = self.selectionProgram.uniformLocation("lightPos")
-        self.selectionProgram.release()
+        # Shader for selection
+        if self.selType == SelModes.S_FULL_SHADER:
+            self.selectionProgram = QOpenGLShaderProgram()
+            self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexSelectionShader)
+            self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentSelectionShader)
+            self.selectionProgram.link()
+            self.selectionProgram.bind()
+            self.projMatrixLoc_selection = self.selectionProgram.uniformLocation("projMatrix")
+            self.mvMatrixLoc_selection = self.selectionProgram.uniformLocation("mvMatrix")
+            self.normalMatrixLoc_selection = self.selectionProgram.uniformLocation("normalMatrix")
+            self.lightPosLoc_selection = self.selectionProgram.uniformLocation("lightPos")
+            self.selectionProgram.release()
+
+        # Shader for wireframe
+        if self.selType in [SelModes.WF_FACET, SelModes.WF_FULL]:
+            self.wireframeProgram = QOpenGLShaderProgram()
+            self.wireframeProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexWireframeShader)
+            self.wireframeProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentWireframeShader)
+            self.wireframeProgram.link()
+            self.wireframeProgram.bind()
+            self.projMatrixLoc_wireframe = self.wireframeProgram.uniformLocation("projMatrix")
+            self.mvMatrixLoc_wireframe = self.wireframeProgram.uniformLocation("mvMatrix")
+            # self.normalMatrixLoc_wireframe = self.wireframeProgram.uniformLocation("normalMatrix")
+            # self.lightPosLoc_wireframe = self.wireframeProgram.uniformLocation("lightPos")
+            self.wireframeProgram.release()
 
     def setprogramvalues(self, proj, mv, normalMatrix, lightpos):
         self.program.bind()
@@ -117,13 +149,21 @@ class BasicPainter(Painter):
         self.program.setUniformValue(self.normalMatrixLoc, normalMatrix)
         self.program.release()
 
-        # if self.selected:
-        self.selectionProgram.bind()
-        self.selectionProgram.setUniformValue(self.lightPosLoc_selection, lightpos)
-        self.selectionProgram.setUniformValue(self.projMatrixLoc_selection, proj)
-        self.selectionProgram.setUniformValue(self.mvMatrixLoc_selection, mv)
-        self.selectionProgram.setUniformValue(self.normalMatrixLoc_selection, normalMatrix)
-        self.selectionProgram.release()
+        if self.selType == SelModes.S_FULL_SHADER:
+            self.selectionProgram.bind()
+            self.selectionProgram.setUniformValue(self.lightPosLoc_selection, lightpos)
+            self.selectionProgram.setUniformValue(self.projMatrixLoc_selection, proj)
+            self.selectionProgram.setUniformValue(self.mvMatrixLoc_selection, mv)
+            self.selectionProgram.setUniformValue(self.normalMatrixLoc_selection, normalMatrix)
+            self.selectionProgram.release()
+
+        if self.selType in [SelModes.WF_FACET, SelModes.WF_FULL]:
+            self.wireframeProgram.bind()
+            # self.wireframeProgram.setUniformValue(self.lightPosLoc_wireframe, lightpos)
+            self.wireframeProgram.setUniformValue(self.projMatrixLoc_wireframe, proj)
+            self.wireframeProgram.setUniformValue(self.mvMatrixLoc_wireframe, mv)
+            # self.wireframeProgram.setUniformValue(self.normalMatrixLoc_wireframe, normalMatrix)
+            self.wireframeProgram.release()
 
     def paintGL(self):
         super().paintGL()
@@ -133,10 +173,14 @@ class BasicPainter(Painter):
         # self.glf.glDisable(GL.GL_CULL_FACE)
 
         for key, value in self._dentsvertsdata.items():
-            if (key == self._si.geometry._guid) and (self.selType == 2):
+            if (key == self._si.geometry._guid) and (self.selType == SelModes.S_FULL_SHADER):
                 self.selectionProgram.bind()
                 value.drawvao(self.glf)
                 self.selectionProgram.release()
+            elif (key == 0) and (self.selType in [SelModes.WF_FULL, SelModes.WF_FACET]):
+                self.wireframeProgram.bind()
+                value.drawvao(self.glf)
+                self.wireframeProgram.release()
             else:
                 self.program.bind()
                 value.drawvao(self.glf)
@@ -325,6 +369,31 @@ class BasicPainter(Painter):
                            gl_FragColor = vec4(col, selectionColor.w);
                         }"""
 
+    def vertexWireframeShaderSource(self):
+        return """attribute vec4 vertex;
+                attribute vec3 normal;
+                attribute vec4 color;
+                varying vec3 vert;
+                varying vec3 vertNormal;
+                varying vec4 colorV;
+                uniform mat4 projMatrix;
+                uniform mat4 mvMatrix;
+                void main() {
+                   // vert: necessary that edges of triangle show up at all
+                   vert = vertex.xyz;
+                   // vertNormal: necessary that edges of triangle appear in the correct coloring
+                   vertNormal = normal;
+                   // vertNormal = vec3(1.0, 1.0, 1.0);
+                   gl_Position = projMatrix * mvMatrix * vertex;
+                   colorV = color;
+                }"""
+
+    def fragmentWireframeShaderSource(self):
+        return """varying highp vec4 colorV; 
+                        void main() {
+                           gl_FragColor = colorV;
+                        }"""
+
     # Painter methods implementation code ********************************************************
 
     def addGeometry(self, geometry: Geometry):
@@ -399,7 +468,10 @@ class BasicPainter(Painter):
             if self._si.haveSelection():
                 self.initnewdictitem(key, GLEntityType.LINE)
                 GL.glLineWidth(3.0)
-                nf = self._si.nFaces() * 3
+                if self.selType == SelModes.WF_FACET:
+                    nf = self._si.nFaces() * 3
+                else:
+                    nf = self._si.geometry.mesh.n_faces() * 3
                 self.appenddictitemsize(key, nf)
                 self.allocatememory(key)
                 self.addSelData4oglmdl_line(key, self._si, self._si.geometry)
@@ -419,7 +491,10 @@ class BasicPainter(Painter):
                 self.delayedRebuildGeometry(geometry)
             self._geo2Rebuild.clear()
         if self._doSelection:
-            self.addSelection_line()
+            if self.selType in [SelModes.WF_FULL, SelModes.WF_FACET]:
+                self.addSelection_line()
+            else:
+                self.addSelection()
             self._doSelection = False
 
     def addSelData4oglmdl(self, key, si, geometry):
@@ -456,7 +531,13 @@ class BasicPainter(Painter):
         normals = mesh.face_normals().tolist()
         points = mesh.points().tolist()
         face_indices = mesh.fv_indices().tolist()
-        for fh in si.allfaces:
+        if self.selType == 1:
+            wireframe_face_indices = si.allfaces
+        else:
+            n_faces = mesh.n_faces()
+            wireframe_face_indices = range(n_faces)
+
+        for fh in wireframe_face_indices:
             n = normals[fh]
             c = [1.0, 0.0, 1.0, 1.0]
 
@@ -883,7 +964,7 @@ class BasicPainter(Painter):
 
     @Slot()
     def onSelected(self, si: SelectionInfo):
-        if self.selType == 0:  # whole geometry selection
+        if self.selType == SelModes.S_FULL_MESH:  # whole geometry selection
             # self._si: old geometry
             # si: new geometry
             if self._si.haveSelection() and si.haveSelection():
@@ -917,12 +998,12 @@ class BasicPainter(Painter):
 
             self._si = si
 
-        elif self.selType == 1:
+        elif self.selType in [SelModes.WF_FACET, SelModes.WF_FULL, SelModes.S_FACET]:
             self._doSelection = True
             self._si = si
             self.requestGLUpdate()
 
-        elif self.selType == 2:
+        elif self.selType == SelModes.S_FULL_SHADER:
             self._si = si
 
         pass
