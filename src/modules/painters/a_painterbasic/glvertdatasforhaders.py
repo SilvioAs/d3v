@@ -115,7 +115,7 @@ class VertDataCollectorVAO(VertDataCollector):
         self._ivert += 1
         return self._ivert
 
-    def _setVertexCounter(self, counter):
+    def setVertexCounter(self, counter):
         self._ivert = counter
 
     def numverts(self):
