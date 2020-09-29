@@ -1,3 +1,4 @@
+from enum import Enum
 from PySide2.QtCore import Slot
 from PySide2.QtGui import QOpenGLShaderProgram, QOpenGLShader
 from PySide2.QtGui import QOpenGLVersionProfile, QOpenGLContext
@@ -23,13 +24,12 @@ from multiprocessing import Pool, Process, Manager, Queue, Array
 import multiprocessing
 
 
-class SelModes:
-    S_FULL_MESH = 0
-    WF_FACET = 1
-    S_FULL_SHADER = 2
-    WF_FULL = 3
-    S_FACET = 4
-    WF_FULL_POLYMODE = 5
+class SelModes(Enum):
+    FULL_FILL_NEWMESH = 0  # Selected Mesh drawn fully by adding a new mesh with a new color
+    FACET_WF = 1    # Facet by wireframe using glPolygonMode
+    FULL_FILL_SHADER = 2   # Full geometry drawn fully in pink by second shader
+    FACET_FILL = 3     # improve with glOffset
+    FULL_WF = 4    # Full geometry by wireframe by glPolygonMode
 
 
 class BasicPainter(Painter):
@@ -54,12 +54,11 @@ class BasicPainter(Painter):
         self.addGeoCount = 0
         Signals.get().selectionChanged.connect(self.onSelected)
         self.paintDevice = 0
-        # self.selType = SelModes.S_FULL_MESH  # 0 - full geometry by addMeshData
-        # self.selType = SelModes.WF_FACET  # 1 - facet by wireframe
-        # self.selType = SelModes.S_FULL_SHADER # 2 - full geometry by shader2
-        # self.selType = SelModes.WF_FULL  # 3 - full geometry by wireframe
-        # self.selType = SelModes.S_FACET  # Facet by filled triangle with z-fight compensation
-        self.selType = SelModes.WF_FULL_POLYMODE  # Full geometry by PolygonMode
+        # self.selType = SelModes.FULL_FILL_NEWMESH  # 0 - full geometry by addMeshData
+        # self.selType = SelModes.FACET_WF  # 1 - facet by wireframe
+        # self.selType = SelModes.FULL_FILL_SHADER # 2 - full geometry by shader2
+        # self.selType = SelModes.FACET_FILL  # Facet by filled triangle with z-fight compensation
+        self.selType = SelModes.FULL_WF  # Full geometry by PolygonMode
         self._showBack = False
         self._multFactor = 1
         self.showBack = True
@@ -79,6 +78,8 @@ class BasicPainter(Painter):
         self.mvMatrixLoc_wireframe = 0
         # self.normalMatrixLoc_wireframe = 0
         # self.lightPosLoc_wireframe = 0
+
+        self.lineWidth = 10.0
 
     @property
     def showBack(self):
@@ -118,7 +119,7 @@ class BasicPainter(Painter):
         self.program.release()
 
         # Shader for selection
-        if self.selType in [SelModes.S_FULL_SHADER, SelModes.WF_FULL_POLYMODE]:
+        if self.selType == SelModes.FULL_FILL_SHADER:
             self.selectionProgram = QOpenGLShaderProgram()
             self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexSelectionShader)
             self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentSelectionShader)
@@ -131,7 +132,7 @@ class BasicPainter(Painter):
             self.selectionProgram.release()
 
         # Shader for wireframe
-        if self.selType in [SelModes.WF_FACET, SelModes.WF_FULL]:
+        if self.selType in [SelModes.FACET_WF, SelModes.FULL_WF]:
             self.wireframeProgram = QOpenGLShaderProgram()
             self.wireframeProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexWireframeShader)
             self.wireframeProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentWireframeShader)
@@ -142,6 +143,7 @@ class BasicPainter(Painter):
             # self.normalMatrixLoc_wireframe = self.wireframeProgram.uniformLocation("normalMatrix")
             # self.lightPosLoc_wireframe = self.wireframeProgram.uniformLocation("lightPos")
             self.wireframeProgram.release()
+            GL.glLineWidth(self.lineWidth)
 
     def setprogramvalues(self, proj, mv, normalMatrix, lightpos):
         self.program.bind()
@@ -151,8 +153,7 @@ class BasicPainter(Painter):
         self.program.setUniformValue(self.normalMatrixLoc, normalMatrix)
         self.program.release()
 
-        if self.selType in [SelModes.S_FULL_SHADER, SelModes.WF_FULL_POLYMODE]:
-            # GL.glLineWidth(3.0)
+        if self.selType == SelModes.FULL_FILL_SHADER:
             self.selectionProgram.bind()
             self.selectionProgram.setUniformValue(self.lightPosLoc_selection, lightpos)
             self.selectionProgram.setUniformValue(self.projMatrixLoc_selection, proj)
@@ -160,7 +161,7 @@ class BasicPainter(Painter):
             self.selectionProgram.setUniformValue(self.normalMatrixLoc_selection, normalMatrix)
             self.selectionProgram.release()
 
-        if self.selType in [SelModes.WF_FACET, SelModes.WF_FULL]:
+        if self.selType in [SelModes.FACET_WF, SelModes.FULL_WF]:
             # GL.glLineWidth(3.0)
             self.wireframeProgram.bind()
             # self.wireframeProgram.setUniformValue(self.lightPosLoc_wireframe, lightpos)
@@ -177,21 +178,23 @@ class BasicPainter(Painter):
         # self.glf.glDisable(GL.GL_CULL_FACE)
 
         for key, value in self._dentsvertsdata.items():
-            if (key == self._si.geometry._guid) and (self.selType == SelModes.S_FULL_SHADER):
+            if (key == self._si.geometry._guid) and (self.selType == SelModes.FULL_FILL_SHADER):
                 self.selectionProgram.bind()
                 value.drawvao(self.glf)
                 self.selectionProgram.release()
 
-            elif (key == 0) and (self.selType in [SelModes.WF_FULL, SelModes.WF_FACET]):
+            elif (key == 0) and (self.selType == SelModes.FACET_WF):
+                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
                 self.wireframeProgram.bind()
                 value.drawvao(self.glf)
                 self.wireframeProgram.release()
+                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
 
-            elif (key == self._si.geometry._guid) and (self.selType == SelModes.WF_FULL_POLYMODE):
+            elif (key == self._si.geometry._guid) and (self.selType == SelModes.FULL_WF):
                 GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
-                self.selectionProgram.bind()
+                self.wireframeProgram.bind()
                 value.drawvao(self.glf)
-                self.selectionProgram.release()
+                self.wireframeProgram.release()
                 GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
                 self.program.bind()
                 value.drawvao(self.glf)
@@ -405,10 +408,12 @@ class BasicPainter(Painter):
                 }"""
 
     def fragmentWireframeShaderSource(self):
-        return """varying highp vec4 colorV; 
-                        void main() {
-                           gl_FragColor = colorV;
-                        }"""
+        return """
+                const highp vec4 wireframeColor = vec4(1.0, 0.0, 1.0, 1.0);
+                void main() {
+                gl_FragColor = wireframeColor;
+                }
+               """
 
     # Painter methods implementation code ********************************************************
 
@@ -472,24 +477,10 @@ class BasicPainter(Painter):
                 nf = self._si.nFaces() * 2
                 self.appenddictitemsize(key, nf)
                 self.allocatememory(key)
-                self.addSelData4oglmdl(key, self._si, self._si.geometry)
-                self.bindData(key)
-
-    def addSelection_line(self):
-        if (self.selType == 0) or (self.selType == 2):
-            pass
-        else:
-            key = 0
-            self.removeDictItem(key)
-            if self._si.haveSelection():
-                self.initnewdictitem(key, GLEntityType.LINE)
-                if self.selType == SelModes.WF_FACET:
-                    nf = self._si.nFaces() * 3
-                else:
-                    nf = self._si.geometry.mesh.n_faces() * 3
-                self.appenddictitemsize(key, nf)
-                self.allocatememory(key)
-                self.addSelData4oglmdl_line(key, self._si, self._si.geometry)
+                if self.selType == SelModes.FACET_WF:
+                    self.addSelData4oglmdl(key, self._si, self._si.geometry)
+                else: # self.selType == SelModes.FACET_FILL:
+                    self.addSelData4oglmdl_withOffset(key, self._si, self._si.geometry)
                 self.bindData(key)
 
     def updateGeometry(self):
@@ -506,13 +497,10 @@ class BasicPainter(Painter):
                 self.delayedRebuildGeometry(geometry)
             self._geo2Rebuild.clear()
         if self._doSelection:
-            if self.selType in [SelModes.WF_FULL, SelModes.WF_FACET]:
-                self.addSelection_line()
-            else:
-                self.addSelection()
+            self.addSelection()
             self._doSelection = False
 
-    def addSelData4oglmdl(self, key, si, geometry):
+    def addSelData4oglmdl_withOffset(self, key, si, geometry):
         mesh = geometry.mesh
         normals = mesh.face_normals().tolist()
         points = mesh.points().tolist()
@@ -541,42 +529,33 @@ class BasicPainter(Painter):
                                                    c[0], c[1], c[2], c[3])
         return
 
-    def addSelData4oglmdl_line(self, key, si, geometry):
+    def addSelData4oglmdl(self, key, si, geometry):
         mesh = geometry.mesh
         normals = mesh.face_normals().tolist()
         points = mesh.points().tolist()
         face_indices = mesh.fv_indices().tolist()
-        if self.selType == 1:
-            wireframe_face_indices = si.allfaces
-        else:
-            n_faces = mesh.n_faces()
-            wireframe_face_indices = range(n_faces)
-
-        for fh in wireframe_face_indices:
+        for fh in si.allfaces:
+            # n = mesh.normal(fh)
             n = normals[fh]
             c = [1.0, 0.0, 1.0, 1.0]
-
-            vertex_indices = face_indices[fh]
-            vertex_indices2 = [vertex_indices[1], vertex_indices[2], vertex_indices[0]]
-            for vh_start, vh_end in zip(vertex_indices, vertex_indices2):
-                p_s = points[vh_start]
-                p_e = points[vh_end]
-
+            # for vh in mesh.fv(fh):  # vertex handle
+            for vh in face_indices[fh]:
+                p = points[vh]
+                # p = mesh.point(vh)
+                # to compensate z-fight
                 self.appendlistdata_f3xyzf3nf4rgba(key,
-                                                   p_s[0], p_s[1], p_s[2],
+                                                   p[0], p[1], p[2],
                                                    n[0], n[1], n[2],
                                                    c[0], c[1], c[2], c[3])
+            for vh in face_indices[fh]:
+                p = points[vh]
+                # for vh in mesh.fv(fh):  # vertex handle
+                #     p = mesh.point(vh)
+                # to compensate z-fight
                 self.appendlistdata_f3xyzf3nf4rgba(key,
-                                                   p_e[0], p_e[1], p_e[2],
+                                                   p[0], p[1], p[2],
                                                    n[0], n[1], n[2],
                                                    c[0], c[1], c[2], c[3])
-                # self.appendlistdata_f3xyzf4rgba(key,
-                #                                    p_s[0], p_s[1], p_s[2],
-                #                                    c[0], c[1], c[2], c[3])
-                # self.appendlistdata_f3xyzf4rgba(key,
-                #                                    p_e[0], p_e[1], p_e[2],
-                #                                    c[0], c[1], c[2], c[3])
-
         return
 
     def addMeshdata4oglmdl(self, key, geometry, add_mesh_mode='multiprocessing'):
@@ -587,7 +566,7 @@ class BasicPainter(Painter):
         cstype = 0  # color source type
         useMeshColor = True
         ar_face_colors, ar_vertex_colors = None, None
-        if self.selType == 0:
+        if self.selType == SelModes.FULL_FILL_NEWMESH:
             if self._si.geometry.guid == geometry.guid:
                 c = [1.0, 0.0, 1.0, 1.0]
                 useMeshColor = False
@@ -1021,7 +1000,7 @@ class BasicPainter(Painter):
 
     @Slot()
     def onSelected(self, si: SelectionInfo):
-        if self.selType == SelModes.S_FULL_MESH:  # whole geometry selection
+        if self.selType == SelModes.FULL_FILL_NEWMESH:  # whole geometry selection
             # self._si: old geometry
             # si: new geometry
             if self._si.haveSelection() and si.haveSelection():
@@ -1037,30 +1016,24 @@ class BasicPainter(Painter):
 
             elif si.haveSelection():
                 # Blue is removed and pink is added
-                # self._geo2Remove.append(si.geometry)
-                # self._geo2Add.append(si.geometry)
-                # self.requestGLUpdate()
                 self._geo2Remove.append(si.geometry)
                 self._geo2Add.append(si.geometry)
                 self.requestGLUpdate()
 
             elif self._si.haveSelection():
                 # Nothing new is selected and only old geometry will be redrawn
-                # self._geo2Remove.append(self._si.geometry)
-                # self._geo2Add.append(self._si.geometry)
-                # self.requestGLUpdate()
                 self._geo2Remove.append(self._si.geometry)
                 self._geo2Add.append(self._si.geometry)
                 self.requestGLUpdate()
 
             self._si = si
 
-        elif self.selType in [SelModes.WF_FACET, SelModes.WF_FULL, SelModes.S_FACET]:
+        elif self.selType in [SelModes.FACET_WF, SelModes.FACET_FILL]:
             self._doSelection = True
             self._si = si
             self.requestGLUpdate()
 
-        elif self.selType in [SelModes.S_FULL_SHADER, SelModes.WF_FULL_POLYMODE]:
+        elif self.selType in [SelModes.FULL_FILL_SHADER, SelModes.FULL_WF]:
             self._si = si
 
         pass
