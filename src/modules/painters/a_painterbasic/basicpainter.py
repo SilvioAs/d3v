@@ -30,6 +30,7 @@ class SelModes(Enum):
     FULL_FILL_SHADER = 2   # Full geometry drawn fully in pink by second shader
     FACET_FILL = 3     # improve with glOffset
     FULL_WF = 4    # Full geometry by wireframe by glPolygonMode
+    FACET_FILL_GLOFFSET = 5
 
 
 class BasicPainter(Painter):
@@ -59,6 +60,7 @@ class BasicPainter(Painter):
         # self.selType = SelModes.FULL_FILL_SHADER # 2 - full geometry by shader2
         # self.selType = SelModes.FACET_FILL  # Facet by filled triangle with z-fight compensation
         self.selType = SelModes.FULL_WF  # Full geometry by PolygonMode
+        # self.selType = SelModes.FACET_FILL_GLOFFSET
         self._showBack = False
         self._multFactor = 1
         self.showBack = True
@@ -79,7 +81,9 @@ class BasicPainter(Painter):
         # self.normalMatrixLoc_wireframe = 0
         # self.lightPosLoc_wireframe = 0
 
-        self.lineWidth = 10.0
+        self.lineWidth = 3.0
+        self.polyOffsetFactor = 1.0
+        self.polyOffsetUnits = 1.0
 
     @property
     def showBack(self):
@@ -132,7 +136,7 @@ class BasicPainter(Painter):
             self.selectionProgram.release()
 
         # Shader for wireframe
-        if self.selType in [SelModes.FACET_WF, SelModes.FULL_WF]:
+        if self.selType in [SelModes.FACET_WF, SelModes.FULL_WF, SelModes.FACET_FILL_GLOFFSET]:
             self.wireframeProgram = QOpenGLShaderProgram()
             self.wireframeProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexWireframeShader)
             self.wireframeProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentWireframeShader)
@@ -161,7 +165,7 @@ class BasicPainter(Painter):
             self.selectionProgram.setUniformValue(self.normalMatrixLoc_selection, normalMatrix)
             self.selectionProgram.release()
 
-        if self.selType in [SelModes.FACET_WF, SelModes.FULL_WF]:
+        if self.selType in [SelModes.FACET_WF, SelModes.FULL_WF, SelModes.FACET_FILL_GLOFFSET]:
             # GL.glLineWidth(3.0)
             self.wireframeProgram.bind()
             # self.wireframeProgram.setUniformValue(self.lightPosLoc_wireframe, lightpos)
@@ -189,6 +193,17 @@ class BasicPainter(Painter):
                 value.drawvao(self.glf)
                 self.wireframeProgram.release()
                 GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
+
+            elif (key == 0) and (self.selType == SelModes.FACET_FILL_GLOFFSET):
+                GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
+                self.wireframeProgram.bind()
+                GL.glPolygonOffset(-self.polyOffsetFactor, -self.polyOffsetUnits)
+                value.drawvao(self.glf)
+                GL.glPolygonOffset(self.polyOffsetFactor, self.polyOffsetUnits)
+                value.drawvao(self.glf)
+                self.wireframeProgram.release()
+                # GL.glPolygonOffset(0.0, 0.0)  # not necessary?!
+                GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
 
             elif (key == self._si.geometry._guid) and (self.selType == SelModes.FULL_WF):
                 GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
@@ -278,9 +293,6 @@ class BasicPainter(Painter):
         :@param numents:(\b int) number of entities to be added
         """
         self._dentsvertsdata[key].appendsize(numents * self._multFactor)
-
-    def appenddictitemsize_line(self, key, numents):
-        pass
 
     def allocatememory(self):
         """!
@@ -485,8 +497,13 @@ class BasicPainter(Painter):
                 self.allocatememory(key)
                 if self.selType == SelModes.FACET_WF:
                     self.addSelData4oglmdl(key, self._si, self._si.geometry)
-                else: # self.selType == SelModes.FACET_FILL:
+                elif self.selType == SelModes.FACET_FILL:  # self.selType == SelModes.FACET_FILL:
                     self.addSelData4oglmdl_withOffset(key, self._si, self._si.geometry)
+                elif self.selType == SelModes.FACET_FILL_GLOFFSET:
+                    self.addSelData4oglmdl(key, self._si, self._si.geometry)
+                else:
+                    raise Exception("Unhandled Selection Type!")
+                    # self.addSelData4oglmdl(key, self._si, self._si.geometry)
                 self.bindData(key)
 
     def updateGeometry(self):
@@ -541,11 +558,12 @@ class BasicPainter(Painter):
         points = mesh.points().tolist()
         face_indices = mesh.fv_indices().tolist()
         for fh in si.allfaces:
+            vertex_indices = face_indices[fh]
             # n = mesh.normal(fh)
             n = normals[fh]
             c = [1.0, 0.0, 1.0, 1.0]
             # for vh in mesh.fv(fh):  # vertex handle
-            for vh in face_indices[fh]:
+            for vh in vertex_indices:
                 p = points[vh]
                 # p = mesh.point(vh)
                 # to compensate z-fight
@@ -553,11 +571,8 @@ class BasicPainter(Painter):
                                                    p[0], p[1], p[2],
                                                    n[0], n[1], n[2],
                                                    c[0], c[1], c[2], c[3])
-            for vh in face_indices[fh]:
+            for vh in vertex_indices[::-1]:
                 p = points[vh]
-                # for vh in mesh.fv(fh):  # vertex handle
-                #     p = mesh.point(vh)
-                # to compensate z-fight
                 self.appendlistdata_f3xyzf3nf4rgba(key,
                                                    p[0], p[1], p[2],
                                                    n[0], n[1], n[2],
@@ -565,6 +580,9 @@ class BasicPainter(Painter):
         return
 
     def addMeshdata4oglmdl(self, key, geometry):
+        """
+        Works currently only for single color
+        """
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 
@@ -806,7 +824,7 @@ class BasicPainter(Painter):
 
             self._si = si
 
-        elif self.selType in [SelModes.FACET_WF, SelModes.FACET_FILL]:
+        elif self.selType in [SelModes.FACET_WF, SelModes.FACET_FILL, SelModes.FACET_FILL_GLOFFSET]:
             self._doSelection = True
             self._si = si
             self.requestGLUpdate()
