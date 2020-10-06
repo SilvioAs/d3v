@@ -106,7 +106,6 @@ class SubDivBoxTree(dmnsn_aabb):
         faceCGs = face_vertices.sum(axis=1) / 3
         return faceCGs
 
-
     """
     Utilitiy functions
     """
