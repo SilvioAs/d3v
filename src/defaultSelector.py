@@ -5,7 +5,6 @@ import openmesh as om
 import numpy as np
 from selection import Selector
 import time
-import cProfile
 
 
 class DefaultSelector(Selector):
@@ -15,8 +14,7 @@ class DefaultSelector(Selector):
     def select(self, los, geometry):
         tSS = time.perf_counter()
         # self.selectOld(los,geometry)
-        cProfile.runctx("self.selectList(los, geometry)", locals(), globals())
-        # self.selectList(los, geometry)
+        self.selectList(los, geometry)
         # self.selectNP(los, geometry)
 
         dtS = time.perf_counter() - tSS
@@ -73,10 +71,6 @@ class DefaultSelector(Selector):
         Signals.get().selectionChanged.emit(si)
 
     def getMeshInterscectionSDBTNew(self, ray: dmnsn_ray, fhlist, points, fv_indices):
-        result = []
-        # intersectedFacets = []
-        # intersectedFacetsDistances = []
-        # Find all intersected facets
         infinity = float("inf")
 
         chosen_fv_indices = fv_indices[fhlist]
@@ -86,20 +80,6 @@ class DefaultSelector(Selector):
         mask = ds != infinity
         intersectedFacets = fhlist[mask]
         intersectedFacetsDistances = ds[mask]
-
-        # Find the closest point
-        # ii = -1
-        # if len(intersectedFacets) > 0:
-        #     ii = 0
-        # i = 1
-        # while i < len(intersectedFacets):
-        #     if intersectedFacetsDistances[i] < intersectedFacetsDistances[ii]:
-        #         ii = i
-        #     i = i + 1
-        # if ii > -1:
-        #     result.append(intersectedFacetsDistances[ii])
-        #     result.append(intersectedFacets[ii])
-        # return result
 
         if len(intersectedFacets) == 0:
             return []
@@ -114,7 +94,6 @@ class DefaultSelector(Selector):
         intersectedFacetsDistances = []
         # Find all intersected facets
         infinity = float("inf")
-        coords = []
         points = mesh.points().tolist()
         fv_indices = mesh.fv_indices().tolist()
         for ifh in fhlist:
@@ -126,25 +105,46 @@ class DefaultSelector(Selector):
                 intersectedFacets.append(ifh)
                 intersectedFacetsDistances.append(d)
         # Find the closest point
-        # ii = -1
-        # if len(intersectedFacets) > 0:
-        #     ii = 0
-        # i = 1
-        # while i < len(intersectedFacets):
-        #     if intersectedFacetsDistances[i] < intersectedFacetsDistances[ii]:
-        #         ii = i
-        #     i = i + 1
-        # if ii > -1:
-        #     result.append(intersectedFacetsDistances[ii])
-        #     result.append(intersectedFacets[ii])
-        # return result
-
-        if len(intersectedFacets) == 0:
-            return []
-
-        idx_min = np.argmin(intersectedFacetsDistances)
-        result = [intersectedFacetsDistances[idx_min], intersectedFacets[idx_min]]
+        ii = -1
+        if len(intersectedFacets) > 0:
+            ii = 0
+        i = 1
+        while i < len(intersectedFacets):
+            if intersectedFacetsDistances[i] < intersectedFacetsDistances[ii]:
+                ii = i
+            i = i + 1
+        if ii > -1:
+            result.append(intersectedFacetsDistances[ii])
+            result.append(intersectedFacets[ii])
         return result
+
+    def rayIntersectsTriangleMollerTrumboreSDBT(self, ray: dmnsn_ray, v0, v1, v2):
+        # https://en.wikipedia.org/wiki/Möller–Trumbore_intersection_algorithm
+        # base on  Java Implementation code
+        e = 0.00000001
+        infinity = float("inf")
+        K = ray.n.XYZ
+        P0 = ray.x0.XYZ
+        edge1 = np.subtract(v1, v0)
+        edge2 = np.subtract(v2, v0)
+        h = np.cross(K, edge2)
+        a = np.sum(edge1 * h, axis=1)
+        results = np.zeros(len(a))
+        results[(-e < a) & (a < e)] = infinity
+
+        f = 1.0 / a
+        s = np.subtract(P0, v0)
+        u = np.multiply(f, np.sum(s * h, axis=1))
+        results[(u < 0.0) | (u > 1.0)] = infinity
+
+        q = np.cross(s, edge1)
+        v = f * np.sum(K * q, axis=1)
+        results[(v < 0.0) | (u + v > 1.0)] = infinity
+
+        t = np.multiply(f, np.sum(edge2 * q, axis=1))
+        mask = results != infinity
+        results[mask] = t[mask]
+        return results
 
     def rayIntersectsTriangleMollerTrumboreSDBT_notOptimized(self, ray: dmnsn_ray, v0, v1, v2):
         # https://en.wikipedia.org/wiki/Möller–Trumbore_intersection_algorithm
@@ -178,34 +178,6 @@ class DefaultSelector(Selector):
         #    return  t
         # else:
         #    return infinity
-
-    def rayIntersectsTriangleMollerTrumboreSDBT(self, ray: dmnsn_ray, v0, v1, v2):
-        # https://en.wikipedia.org/wiki/Möller–Trumbore_intersection_algorithm
-        # base on  Java Implementation code
-        e = 0.00000001
-        infinity = float("inf")
-        K = ray.n.XYZ
-        P0 = ray.x0.XYZ
-        edge1 = np.subtract(v1, v0)
-        edge2 = np.subtract(v2, v0)
-        h = np.cross(K, edge2)
-        a = np.sum(edge1 * h, axis=1)
-        results = np.zeros(len(a))
-        results[(-e < a) & (a < e)] = infinity
-
-        f = 1.0 / a
-        s = np.subtract(P0, v0)
-        u = np.multiply(f, np.sum(s * h, axis=1))
-        results[(u < 0.0) | (u > 1.0)] = infinity
-
-        q = np.cross(s, edge1)
-        v = f * np.sum(K * q, axis=1)
-        results[(v < 0.0) | (u + v > 1.0)] = infinity
-
-        t = np.multiply(f, np.sum(edge2 * q, axis=1))
-        mask = results != infinity
-        results[mask] = t[mask]
-        return results
 
     def getMeshInterscectionSDBT(self, ray: dmnsn_ray, fhlist, mesh: om.TriMesh):
         result = []
@@ -356,7 +328,6 @@ class DefaultSelector(Selector):
         #    return infinity
 
     def dmnsn_ray_box_intersection(self, optray: dmnsn_optimized_ray, box: dmnsn_aabb, t):
-
         # This is actually correct, even though it appears not to handle edge cases
         # (ray.n.{x,y,z} == 0).  It works because the infinities that result from
         # dividing by zero will still behave correctly in the comparisons.  Rays
