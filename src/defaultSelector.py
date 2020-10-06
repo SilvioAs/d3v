@@ -36,10 +36,8 @@ class DefaultSelector(Selector):
             intrsectLeafs.clear()
             isInBox = geo.subdivboxtree.getIntersectedLeafs(opt_ray, t, intrsectLeafs)
 
-            points = np.array(geo.mesh.points().tolist())
-            # points = geo.mesh.points().tolist()
-            fv_indices = np.array(geo.mesh.fv_indices().tolist())
-            # fv_indices = geo.mesh.fv_indices().tolist()
+            points = geo.mesh.points()
+            fv_indices = geo.mesh.fv_indices()
 
             # 2. test mesh in intersected subdivision box tree leafs
             if isInBox:
@@ -89,26 +87,25 @@ class DefaultSelector(Selector):
         intersectedFacets = fhlist[mask]
         intersectedFacetsDistances = ds[mask]
 
-        # for ifh in fhlist:
-        #     d = self.rayIntersectsTriangleMollerTrumboreSDBT(ray,
-        #                                                      points[fv_indices[ifh][0]],
-        #                                                      points[fv_indices[ifh][1]],
-        #                                                      points[fv_indices[ifh][2]])
-        #     if d != infinity:
-        #         intersectedFacets.append(ifh)
-        #         intersectedFacetsDistances.append(d)
         # Find the closest point
-        ii = -1
-        if len(intersectedFacets) > 0:
-            ii = 0
-        i = 1
-        while i < len(intersectedFacets):
-            if intersectedFacetsDistances[i] < intersectedFacetsDistances[ii]:
-                ii = i
-            i = i + 1
-        if ii > -1:
-            result.append(intersectedFacetsDistances[ii])
-            result.append(intersectedFacets[ii])
+        # ii = -1
+        # if len(intersectedFacets) > 0:
+        #     ii = 0
+        # i = 1
+        # while i < len(intersectedFacets):
+        #     if intersectedFacetsDistances[i] < intersectedFacetsDistances[ii]:
+        #         ii = i
+        #     i = i + 1
+        # if ii > -1:
+        #     result.append(intersectedFacetsDistances[ii])
+        #     result.append(intersectedFacets[ii])
+        # return result
+
+        if len(intersectedFacets) == 0:
+            return []
+
+        idx_min = np.argmin(intersectedFacetsDistances)
+        result = [intersectedFacetsDistances[idx_min], intersectedFacets[idx_min]]
         return result
 
     def getMeshInterscectionSDBTNew_notOptimized(self, ray: dmnsn_ray, fhlist, mesh: om.TriMesh):
@@ -129,17 +126,24 @@ class DefaultSelector(Selector):
                 intersectedFacets.append(ifh)
                 intersectedFacetsDistances.append(d)
         # Find the closest point
-        ii = -1
-        if len(intersectedFacets) > 0:
-            ii = 0
-        i = 1
-        while i < len(intersectedFacets):
-            if intersectedFacetsDistances[i] < intersectedFacetsDistances[ii]:
-                ii = i
-            i = i + 1
-        if ii > -1:
-            result.append(intersectedFacetsDistances[ii])
-            result.append(intersectedFacets[ii])
+        # ii = -1
+        # if len(intersectedFacets) > 0:
+        #     ii = 0
+        # i = 1
+        # while i < len(intersectedFacets):
+        #     if intersectedFacetsDistances[i] < intersectedFacetsDistances[ii]:
+        #         ii = i
+        #     i = i + 1
+        # if ii > -1:
+        #     result.append(intersectedFacetsDistances[ii])
+        #     result.append(intersectedFacets[ii])
+        # return result
+
+        if len(intersectedFacets) == 0:
+            return []
+
+        idx_min = np.argmin(intersectedFacetsDistances)
+        result = [intersectedFacetsDistances[idx_min], intersectedFacets[idx_min]]
         return result
 
     def rayIntersectsTriangleMollerTrumboreSDBT_notOptimized(self, ray: dmnsn_ray, v0, v1, v2):
@@ -237,7 +241,6 @@ class DefaultSelector(Selector):
         return result
 
     def getMeshInterscection(self, K, P0, mesh: om.TriMesh):
-        result = []
         intersectedFacets = []
         intersectedFacetsDistances = []
         # Find all intersected facets
@@ -247,7 +250,9 @@ class DefaultSelector(Selector):
             if d != infinity:
                 intersectedFacets.append(fh)
                 intersectedFacetsDistances.append(d)
+
         # Find the closest point
+        result = []
         ii = -1
         if len(intersectedFacets) > 0:
             ii = 0
