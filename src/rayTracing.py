@@ -1,8 +1,8 @@
 # /*************************************************************************
 #  * Copyright (C) 2012-2014 Tavian Barnes <tavianator@tavianator.com>     *
-#  * Copyright (C) 2020 Pero Prebeg / Silvio Achilles                      *
+#  * Copyright (C) 2020 Pero Prebeg <Pero.Prebeg@fsb.hr>                   *
 #  *                                                                       *
-#  * This content of this file is part of The Dimension Library. The       *
+#  * The content of this file is part of The Dimension Library. The        *
 #  * original C Code of The Dimensions Library has been translated to      *
 #  * Python code.                                                          *
 #  *                                                                       *
