@@ -566,7 +566,7 @@ class BasicPainter(Painter):
                                                    c[0], c[1], c[2], c[3])
         return
 
-    def addMeshdata4oglmdl(self, key, geometry):
+    def addMeshdata4oglmdl_np_opt(self, key, geometry):
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 
@@ -833,15 +833,14 @@ class BasicPainter(Painter):
     performance increase is obtained by using numpy array operations. However, the functions are kept for completeness. 
     
     The function add_faces_multicore has a parameter multi_mode, with which the type of multiprocessing can be chosen. 
-    The 3 process options differ by the way the results are obtained from the individual Python processes. 
+    The 2 process options differ by the way the results are obtained from the individual Python processes. 
     Note, none of these functions are finally refactored and tested.
     multi_mode = 'pool':                Fastest option. Empirically found to be better than Process.
     multi_mode = 'process_queue':       2nd fastest option.
     multi_mode = 'process_dict':        3rd fastest option.
-    multi_mode = 'process_sharedMemory: Slowest option. Also, shared memory is simply not appropiate for this type of task. 
     """
 
-    def addMeshdata4oglmdl_with_multiprocessing(self, key, geometry):
+    def addMeshdata4oglmdl(self, key, geometry):
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 
@@ -877,7 +876,7 @@ class BasicPainter(Painter):
         ifhs = range(n_faces)
 
         self.addFaces_multiCore(key, ar_fv_indices, ifhs, cstype, c, ar_points,
-                                ar_face_normals, ar_face_colors, ar_vertex_colors, multi_mode='process_queue')
+                                ar_face_normals, ar_face_colors, ar_vertex_colors, multi_mode='pool')
 
         dtAMD = time.perf_counter() - tsAMD
         print("Add mesh data total:", dtAMD)
@@ -900,7 +899,7 @@ class BasicPainter(Painter):
                 pool_args.append(arg)
 
             with Pool(processes=n_cores) as p:
-                array_results = p.map(BasicPainter.addFacesToArray__wrapped, pool_args)
+                array_results = p.map(BasicPainter.addFacesToArray_wrapped, pool_args)
 
             vertex_array, normal_array, color_array = self.distribute_array_results(array_results)
 
@@ -954,42 +953,11 @@ class BasicPainter(Painter):
 
             vertex_array, normal_array, color_array = self.distribute_array_results(array_results)
 
-        elif multi_mode == "process_sharedMemory":
-            process_args = []
-            mult_factor = 1
-            if self._showBack:
-                mult_factor = 2
-            vertex_array = Array('d', n_faces * 9 * mult_factor)
-            normal_array = Array('d', n_faces * 9 * mult_factor)
-            color_array = Array('d', n_faces * 12 * mult_factor)
-
-            for core_idx, (ifhs_sublist, fv_sublist) in enumerate(zip(ifhs_sublists, fv_sublists)):
-                start_idx = chunksize * core_idx
-                arg = [fv_sublist, ifhs_sublist, cstype, c, ar_points, ar_face_normals, ar_face_colors,
-                       ar_vertex_colors, self._showBack, vertex_array, normal_array, color_array, start_idx]
-                process_args.append(arg)
-
-            processes = []
-            for args in process_args:
-                p = Process(target=BasicPainter.addFacesToArray__sharedMemory, args=args)
-                p.start()
-                processes.append(p)
-
-            for p in processes:
-                p.join()
-
-            vertex_array = np.frombuffer(vertex_array.get_obj())
-            vertex_array = np.array(vertex_array, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
-            normal_array = np.frombuffer(normal_array.get_obj())
-            normal_array = np.array(normal_array, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
-            color_array = np.frombuffer(color_array.get_obj())
-            color_array = np.array(color_array, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
-
         self._dentsvertsdata[key].setlistdata_f3xyzf3nf4rgba(vertex_array, normal_array, color_array)
         if self._showBack:
-            self._dentsvertsdata[key]._setVertexCounter(n_faces * 3 * 2)
+            self._dentsvertsdata[key].setVertexCounter(n_faces * 3 * 2)
         else:
-            self._dentsvertsdata[key]._setVertexCounter(n_faces * 3)
+            self._dentsvertsdata[key].setVertexCounter(n_faces * 3)
 
     @staticmethod
     def distribute_array_results(array_results):
@@ -1007,7 +975,7 @@ class BasicPainter(Painter):
         return vertex_array, normal_array, color_array
 
     @staticmethod
-    def addFacesToArray_(fvs, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors,
+    def addFacesToArray(fvs, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors, ar_vertex_colors,
                           show_back):
         mult_factor = 1
         if show_back:
@@ -1090,90 +1058,14 @@ class BasicPainter(Painter):
         return vertex_data, normal_data, color_data
 
     @staticmethod
-    def addFacesToArray__wrapped(args):
-        return BasicPainter.addFacesToArray_(*args)
+    def addFacesToArray_wrapped(args):
+        return BasicPainter.addFacesToArray(*args)
 
     @staticmethod
     def addFacesToArray_ProcessQueue_wrapped(args):
         q = args[-2]
-        q.put((args[-1], BasicPainter.addFacesToArray_(*args[:-2])))
+        q.put((args[-1], BasicPainter.addFacesToArray(*args[:-2])))
 
     @staticmethod
     def addFacesToArray_ProcessDict_wrapped(args):
-        args[-2][args[-1]] = BasicPainter.addFacesToArray_(*args[:-2])
-
-    @staticmethod
-    def addFaces_parallel_sharedMemory(fvs, ifhs, cstype, c, ar_points, ar_face_normals, ar_face_colors,
-                                       ar_vertex_colors, show_back, vertex_data, normal_data, color_data, start_idx):
-        data3_idx = start_idx
-        data4_idx = start_idx
-        t_start = time.perf_counter()
-        if show_back:
-            data3_idx_back = start_idx + 15
-            data4_idx_back = start_idx + 20
-
-            for ifh, fv in zip(ifhs, fvs):
-                n = ar_face_normals[ifh]
-                if cstype == 1:
-                    c = ar_face_colors[ifh]
-
-                for run_idx, iv in enumerate(fv):
-                    p = ar_points[iv]
-                    if cstype == 2:
-                        c = ar_vertex_colors[iv]
-
-                    vertex_data[data3_idx] = p[0]
-                    vertex_data[data3_idx + 1] = p[1]
-                    vertex_data[data3_idx + 2] = p[2]
-
-                    normal_data[data3_idx] = n[0]
-                    normal_data[data3_idx + 1] = n[1]
-                    normal_data[data3_idx + 2] = n[2]
-
-                    color_data[data4_idx] = c[0]
-                    color_data[data4_idx + 1] = c[1]
-                    color_data[data4_idx + 2] = c[2]
-                    color_data[data4_idx + 3] = c[3]
-
-                    data3_idx += 3
-                    data4_idx += 4
-
-                    vertex_data[data3_idx_back] = p[0]
-                    vertex_data[data3_idx_back + 1] = p[1]
-                    vertex_data[data3_idx_back + 2] = p[2]
-
-                    normal_data[data3_idx_back] = -n[0]
-                    normal_data[data3_idx_back + 1] = -n[1]
-                    normal_data[data3_idx_back + 2] = -n[2]
-
-                    color_data[data4_idx_back] = c[0]
-                    color_data[data4_idx_back + 1] = c[1]
-                    color_data[data4_idx_back + 2] = c[2]
-                    color_data[data4_idx_back + 3] = c[3]
-
-                    data3_idx_back -= 3
-                    data4_idx_back -= 4
-
-                data3_idx += 9
-                data4_idx += 12
-
-                data3_idx_back += 27
-                data4_idx_back += 36
-        else:
-            for ifh, fv in zip(ifhs, fvs):
-                n = ar_face_normals[ifh]
-                if cstype == 1:
-                    c = ar_face_colors[ifh]
-
-                for run_idx, iv in enumerate(fv):
-                    p = ar_points[iv]
-                    if cstype == 2:
-                        c = ar_vertex_colors[iv]
-
-                    vertex_data[data3_idx: data3_idx + 3] = p[0], p[1], p[2]
-                    normal_data[data3_idx: data3_idx + 3] = n[0], n[1], n[2]
-                    color_data[data4_idx: data4_idx + 4] = c[0], c[1], c[2], c[3]
-                    data3_idx += 3
-                    data4_idx += 4
-
-        print("Process needed: {}".format(time.perf_counter() - t_start))
+        args[-2][args[-1]] = BasicPainter.addFacesToArray(*args[:-2])
