@@ -566,7 +566,7 @@ class BasicPainter(Painter):
                                                    c[0], c[1], c[2], c[3])
         return
 
-    def addMeshdata4oglmdl_np_opt(self, key, geometry):
+    def addMeshdata4oglmdl(self, key, geometry):
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 
@@ -840,7 +840,7 @@ class BasicPainter(Painter):
     multi_mode = 'process_dict':        3rd fastest option.
     """
 
-    def addMeshdata4oglmdl(self, key, geometry):
+    def addMeshdata4oglmdl_multiprocessing(self, key, geometry):
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 
