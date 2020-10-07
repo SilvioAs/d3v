@@ -1,10 +1,12 @@
 # /*************************************************************************
 #  * Copyright (C) 2012-2014 Tavian Barnes <tavianator@tavianator.com>     *
+#  * https://github.com/tavianator/dimension                               *
 #  * Copyright (C) 2020 Pero Prebeg <Pero.Prebeg@fsb.hr>                   *
 #  *                                                                       *
 #  * The content of this file is part of The Dimension Library. The        *
 #  * original C Code of The Dimensions Library has been translated to      *
-#  * Python code.                                                          *
+#  * Python code, further accomodations have been made to emphasize the    *
+#  * purpose of d3v.                                                       *
 #  *                                                                       *
 #  * The Dimension Library is free software; you can redistribute it and/  *
 #  * or modify it under the terms of the GNU Lesser General Public License *
