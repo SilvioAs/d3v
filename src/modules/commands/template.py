@@ -23,7 +23,7 @@ class TemplateCommand(Command):
 
         tools.addMenu(menu)
 
-    def onCreateBox(self):
+    def onCreateBox_tri(self):
         mesh = om.TriMesh()
         #mesh.request_vertex_colors()
         # m --> min, M --> max
@@ -62,6 +62,61 @@ class TemplateCommand(Command):
         mesh.add_face([p4, p6, p7])
         mesh.add_face([p1, p5, p7])
         mesh.add_face([p1, p7, p3])
+
+        g = Geometry()
+        g.mesh = mesh
+        Signals.get().geometryImported.emit(g)
+
+    def onCreateBox(self):
+        mesh = om.PolyMesh()
+
+        p0 = mesh.add_vertex([-1, -1, 1])
+        p1 = mesh.add_vertex([1, -1, 1])
+        p2 = mesh.add_vertex([1, 1, 1])
+        p3 = mesh.add_vertex([-1, 1, 1])
+        p4 = mesh.add_vertex([-1, -1, -1])
+        p5 = mesh.add_vertex([1, -1, -1])
+        p6 = mesh.add_vertex([1, 1, -1])
+        p7 = mesh.add_vertex([-1, 1, -1])
+
+        mesh.add_face([p0, p1, p2, p3])
+
+        mesh.add_face([p7, p6, p5, p4])
+
+        mesh.add_face([p1, p0, p4, p5])
+
+        mesh.add_face([p2, p1, p5, p6])
+
+        mesh.add_face([p3, p2, p6, p7])
+
+        mesh.add_face([p0, p3, p7, p4])
+
+        if not mesh.has_face_normals():
+            mesh.request_face_normals()
+            mesh.update_face_normals()
+
+        normals = mesh.face_normals()
+
+
+        # dx = np.random.ranf()
+        # dy = np.random.ranf()
+        # dz = np.random.ranf()
+        # p0 = mesh.add_vertex([-1 + dx, -1 + dy, -1 + dz])
+        # p1 = mesh.add_vertex([-1 + dx, -1 + dy, 1 + dz])
+        # p2 = mesh.add_vertex([-1 + dx, 1 + dy, -1 + dz])
+        # p3 = mesh.add_vertex([-1 + dx, 1 + dy, 1 + dz])
+        # p4 = mesh.add_vertex([1 + dx, -1 + dy, -1 + dz])
+        # p5 = mesh.add_vertex([1 + dx, -1 + dy, 1 + dz])
+        # p6 = mesh.add_vertex([1 + dx, 1 + dy, -1 + dz])
+        # p7 = mesh.add_vertex([1 + dx, 1 + dy, 1 + dz])
+        #
+        # yapf: enable
+        # mesh.add_face([p0, p6, p4, p2])
+        # mesh.add_face([p0, p4, p5, p1])
+        # mesh.add_face([p0, p3, p2, p1])
+        # mesh.add_face([p6, p2, p3, p7])
+        # mesh.add_face([p4, p7, p5, p6])
+        # mesh.add_face([p1, p5, p7, p3])
 
         g = Geometry()
         g.mesh = mesh

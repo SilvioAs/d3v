@@ -56,11 +56,11 @@ class BasicPainter(Painter):
         Signals.get().selectionChanged.connect(self.onSelected)
         self.paintDevice = 0
         # self.selType = SelModes.FULL_FILL_NEWMESH  # 0 - full geometry by addMeshData
-        # self.selType = SelModes.FACET_WF  # 1 - facet by wireframe
+        self.selType = SelModes.FACET_WF  # 1 - facet by wireframe
         # self.selType = SelModes.FULL_FILL_SHADER # 2 - full geometry by shader2
         # self.selType = SelModes.FACET_FILL  # Facet by filled triangle with z-fight compensation
         # self.selType = SelModes.FULL_WF  # Full geometry by PolygonMode
-        self.selType = SelModes.FACET_FILL_GLOFFSET
+        # self.selType = SelModes.FACET_FILL_GLOFFSET
         self._showBack = False
         self._multFactor = 1
         self.showBack = True
@@ -451,7 +451,8 @@ class BasicPainter(Painter):
         self.addGeoCount = self.addGeoCount + 1
         key = geometry.guid
         # self.resetmodel()
-        self.initnewdictitem(key, GLEntityType.TRIA)
+        # self.initnewdictitem(key, GLEntityType.TRIA)
+        self.initnewdictitem(key, GLEntityType.QUAD)
         nf = geometry.mesh.n_faces()
         self.appenddictitemsize(key, nf)
         self.allocatememory(key)
@@ -597,18 +598,20 @@ class BasicPainter(Painter):
         face_normals_np = mesh.face_normals()
         ar_points = mesh.points()
 
+        n_vertices_per_face = len(fv_indices_np[0])
+
         fv_indices_flattened = fv_indices_np.flatten()
         mesh_points = ar_points[fv_indices_flattened]
         data_mesh_points = mesh_points.flatten()
 
-        mesh_normals = np.repeat(face_normals_np, 3, axis=0)
+        mesh_normals = np.repeat(face_normals_np, n_vertices_per_face, axis=0)
         data_mesh_normals = mesh_normals.flatten()
 
         if cstype == 0:
-            mesh_colors = np.tile(c, n_faces * 3)
+            mesh_colors = np.tile(c, n_faces * n_vertices_per_face)
             data_mesh_colors = mesh_colors.flatten()
         elif cstype == 1:
-            mesh_colors = np.repeat(ar_face_colors, 3, axis=0)
+            mesh_colors = np.repeat(ar_face_colors, n_vertices_per_face, axis=0)
             data_mesh_colors = mesh_colors.flatten()
         elif cstype == 2:
             # Vertex colors has not been tested and is only implemented from context.
@@ -622,14 +625,14 @@ class BasicPainter(Painter):
             reversed_mesh_points = reversed_mesh_points.flatten()
 
             reversed_normals = -face_normals_np[::-1]
-            reversed_normals = np.repeat(reversed_normals, 3, axis=0)
+            reversed_normals = np.repeat(reversed_normals, n_vertices_per_face, axis=0)
             reversed_normals = reversed_normals.flatten()
 
             if cstype == 0:
                 reversed_mesh_colors = data_mesh_colors
             elif cstype == 1:
                 reversed_mesh_colors = ar_face_colors[::-1]
-                reversed_mesh_colors = np.repeat(reversed_mesh_colors, 3, axis=0)
+                reversed_mesh_colors = np.repeat(reversed_mesh_colors, n_vertices_per_face, axis=0)
                 reversed_mesh_colors = reversed_mesh_colors.flatten()
             elif cstype == 2:
                 reversed_mesh_colors = ar_vertex_colors[fv_indices_flattened_reversed]
