@@ -71,15 +71,16 @@ class DefaultSelector(Selector):
         Signals.get().selectionChanged.emit(si)
 
     def getMeshInterscectionSDBTNew(self, ray: dmnsn_ray, fhlist, points, fv_indices):
-        infinity = float("inf")
-
         chosen_fv_indices = fv_indices[fhlist]
         chosen_points = points[chosen_fv_indices]
 
-        ds = self.rayIntersectsTriangleMollerTrumboreSDBT(ray, chosen_points[:, 0], chosen_points[:, 1], chosen_points[:, 2])
-        mask = ds != infinity
-        intersectedFacets = fhlist[mask]
-        intersectedFacetsDistances = ds[mask]
+        if len(chosen_points[0]) == 3:
+            intersectedFacets, intersectedFacetsDistances = self.triIntersectFacetsDistances(ray, fhlist, chosen_points[:, 0], chosen_points[:, 1], chosen_points[:, 2])
+        elif len(chosen_points[0]) == 4:
+            intersectedFacets, intersectedFacetsDistances = self.quadIntersectFacetsDistances(ray, fhlist, chosen_points)
+        else:
+            print("Polygon type can not be handled by selection.")
+            return []
 
         if len(intersectedFacets) == 0:
             return []
@@ -117,6 +118,24 @@ class DefaultSelector(Selector):
             result.append(intersectedFacetsDistances[ii])
             result.append(intersectedFacets[ii])
         return result
+
+    def quadIntersectFacetsDistances(self, ray:dmnsn_ray, fhlist, points):
+        facets1, distances1 = self.triIntersectFacetsDistances(ray, fhlist, points[:, 0], points[:, 1], points[:, 2])
+        facets2, distances2 = self.triIntersectFacetsDistances(ray, fhlist, points[:, 0], points[:, 2], points[:, 3])
+
+        facets = np.concatenate([facets1, facets2])
+        distances = np.concatenate([distances1, distances2])
+
+        return facets, distances
+
+    def triIntersectFacetsDistances(self, ray:dmnsn_ray, fhlist, v0, v1, v2):
+        infinity = float('inf')
+        ds = self.rayIntersectsTriangleMollerTrumboreSDBT(ray, v0, v1, v2)
+        mask = ds != infinity
+        intersectedFacets = fhlist[mask]
+        intersectedFacetsDistances = ds[mask]
+
+        return intersectedFacets, intersectedFacetsDistances
 
     def rayIntersectsTriangleMollerTrumboreSDBT(self, ray: dmnsn_ray, v0, v1, v2):
         # https://en.wikipedia.org/wiki/Möller–Trumbore_intersection_algorithm
