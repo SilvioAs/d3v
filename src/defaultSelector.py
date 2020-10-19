@@ -1,4 +1,4 @@
-from rayTracing import dmnsn_ray, dmnsn_optimized_ray, dmnsn_aabb
+from rayTracing import Ray, Box3DIntersection
 from signals import Signals
 from selinfo import SelectionInfo
 import openmesh as om
@@ -28,11 +28,10 @@ class DefaultSelector(Selector):
         for geo in geometry:
             isInBox = True
             # 1. test bounding box
-            t = 99999999
-            ray = dmnsn_ray(los)
-            opt_ray = dmnsn_optimized_ray(ray)
+            ray = Ray([los[0].x(), los[0].y(), los[0].z()], [los[1].x(), los[1].y(), los[1].z()])
+            # ray = Ray([los[1].x(), los[1].y(), los[1].z()], [los[0].x(), los[0].y(), los[0].z()])
             intrsectLeafs.clear()
-            isInBox = geo.subdivboxtree.getIntersectedLeafs(opt_ray, t, intrsectLeafs)
+            isInBox, intrsectLeafs = geo.subdivboxtree.getIntersectedLeafs(ray, intrsectLeafs)
 
             points = geo.mesh.points()
             fv_indices = geo.mesh.fv_indices()
@@ -70,7 +69,7 @@ class DefaultSelector(Selector):
         # obavijesti sve zainteresirane da je selekcija promijenjena
         Signals.get().selectionChanged.emit(si)
 
-    def getMeshInterscectionSDBTNew(self, ray: dmnsn_ray, fhlist, points, fv_indices):
+    def getMeshInterscectionSDBTNew(self, ray: Ray, fhlist, points, fv_indices):
         infinity = float("inf")
 
         chosen_fv_indices = fv_indices[fhlist]
@@ -88,7 +87,7 @@ class DefaultSelector(Selector):
         result = [intersectedFacetsDistances[idx_min], intersectedFacets[idx_min]]
         return result
 
-    def getMeshInterscectionSDBTNew_notOptimized(self, ray: dmnsn_ray, fhlist, mesh: om.TriMesh):
+    def getMeshInterscectionSDBTNew_notOptimized(self, ray: Ray, fhlist, mesh: om.TriMesh):
         result = []
         intersectedFacets = []
         intersectedFacetsDistances = []
@@ -118,13 +117,13 @@ class DefaultSelector(Selector):
             result.append(intersectedFacets[ii])
         return result
 
-    def rayIntersectsTriangleMollerTrumboreSDBT(self, ray: dmnsn_ray, v0, v1, v2):
+    def rayIntersectsTriangleMollerTrumboreSDBT(self, ray: Ray, v0, v1, v2):
         # https://en.wikipedia.org/wiki/Möller–Trumbore_intersection_algorithm
         # base on  Java Implementation code
         e = 0.00000001
         infinity = float("inf")
-        K = ray.n.XYZ
-        P0 = ray.x0.XYZ
+        K = ray.d
+        P0 = ray.o
         edge1 = np.subtract(v1, v0)
         edge2 = np.subtract(v2, v0)
         h = np.cross(K, edge2)
@@ -146,13 +145,13 @@ class DefaultSelector(Selector):
         results[mask] = t[mask]
         return results
 
-    def rayIntersectsTriangleMollerTrumboreSDBT_notOptimized(self, ray: dmnsn_ray, v0, v1, v2):
+    def rayIntersectsTriangleMollerTrumboreSDBT_notOptimized(self, ray: Ray, v0, v1, v2):
         # https://en.wikipedia.org/wiki/Möller–Trumbore_intersection_algorithm
         # base on  Java Implementation code
         e = 0.00000001
         infinity = float("inf")
-        K = ray.n.XYZ
-        P0 = ray.x0.XYZ
+        K = ray.d
+        P0 = ray.o
         edge1 = np.subtract(v1, v0)
         edge2 = np.subtract(v2, v0)
         h = np.cross(K, edge2)
@@ -179,7 +178,7 @@ class DefaultSelector(Selector):
         # else:
         #    return infinity
 
-    def getMeshInterscectionSDBT(self, ray: dmnsn_ray, fhlist, mesh: om.TriMesh):
+    def getMeshInterscectionSDBT(self, ray: Ray, fhlist, mesh: om.TriMesh):
         result = []
         intersectedFacets = []
         intersectedFacetsDistances = []
@@ -250,14 +249,12 @@ class DefaultSelector(Selector):
         # geometry je lista geometrije iz koje treba izracunati selekciju
         sis = []
         for geo in geometry:
-            isInBox = True
             # 1. test bounding box
             t = 99999999
-            box = dmnsn_aabb()
+            box = Box3DIntersection()
             box.setFromBBox(geo.bbox)
-            ray = dmnsn_ray(los)
-            opt_ray = dmnsn_optimized_ray(ray)
-            isInBox = self.dmnsn_ray_box_intersection(opt_ray, box, t)
+            ray = Ray(los[0], los[1])
+            isInBox = box.intersectsWithRay(ray)
             # 2. test mesh in geo
             if isInBox:
                 meshres = self.getMeshInterscection(K, P0, geo.mesh)
@@ -326,31 +323,3 @@ class DefaultSelector(Selector):
         #    return  t
         # else:
         #    return infinity
-
-    def dmnsn_ray_box_intersection(self, optray: dmnsn_optimized_ray, box: dmnsn_aabb, t):
-        # This is actually correct, even though it appears not to handle edge cases
-        # (ray.n.{x,y,z} == 0).  It works because the infinities that result from
-        # dividing by zero will still behave correctly in the comparisons.  Rays
-        # which are parallel to an axis and outside the box will have tmin == inf
-        # or tmax == -inf, while rays inside the box will have tmin and tmax
-        # unchanged.
-
-        tx1 = (box.min.X - optray.x0.X) * optray.n_inv.X
-        tx2 = (box.max.X - optray.x0.X) * optray.n_inv.X
-
-        tmin = min(tx1, tx2)
-        tmax = max(tx1, tx2)
-
-        ty1 = (box.min.Y - optray.x0.Y) * optray.n_inv.Y
-        ty2 = (box.max.Y - optray.x0.Y) * optray.n_inv.Y
-
-        tmin = max(tmin, min(ty1, ty2))
-        tmax = min(tmax, max(ty1, ty2))
-
-        tz1 = (box.min.Z - optray.x0.Z) * optray.n_inv.Z
-        tz2 = (box.max.Z - optray.x0.Z) * optray.n_inv.Z
-
-        tmin = max(tmin, min(tz1, tz2))
-        tmax = min(tmax, max(tz1, tz2))
-
-        return tmax >= max(0.0, tmin) and tmin < t

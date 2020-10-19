@@ -3,27 +3,34 @@ import time
 import numpy as np
 
 from bounds import BBox
-from rayTracing import Box3DIntersection
+from rayTracing import dmnsn_aabb
 
 
-class SubDivBoxTree(Box3DIntersection):
+class SubDivBoxTree(dmnsn_aabb):
     def __init__(self, mesh):
         super().__init__()
         self.mesh = mesh
         self.facets = []
         self.nodes = []
+        self.node_list = []
         self._maxfacets = 1000
         self.name = ""
 
-    def getIntersectedLeafs(self, ray, intrsectLeafs):
-        if self.intersectsWithRay(ray):
+    def getIntersectedLeafs(self, optray, t, intrsectLeafs):
+        if self.dmnsn_ray_box_intersection(optray, t):
             if self.isleaf:
                 intrsectLeafs.append(self)
             else:
                 for node in self.nodes:
-                    isInBox, intrsectLeafs = node.getIntersectedLeafs(ray, intrsectLeafs)
+                    node.getIntersectedLeafs(optray, t, intrsectLeafs)
 
-        return len(intrsectLeafs) > 0, intrsectLeafs
+        return len(intrsectLeafs) > 0
+
+    def new(self):
+        cb = SubDivBoxTree(None)
+        cb.min.copyFrom(self.min)
+        cb.max.copyFrom(self.max)
+        return cb
 
     def createTreeRoot(self, box: BBox):
         if not self.mesh.has_face_normals():
@@ -56,9 +63,9 @@ class SubDivBoxTree(Box3DIntersection):
 
     def subdivideOn2New(self, fv_indices: [], points: []):
         # determine max deltas of bbox
-        dx = self.maxCoord[0] - self.minCoord[0]
-        dy = self.maxCoord[1] - self.minCoord[1]
-        dz = self.maxCoord[2] - self.minCoord[2]
+        dx = self.max.X - self.min.X
+        dy = self.max.Y - self.min.Y
+        dz = self.max.Z - self.min.Z
         dmax = max(dx, dy, dz)
 
         # Copy full bounding box two times and split them half
@@ -67,14 +74,14 @@ class SubDivBoxTree(Box3DIntersection):
         sbox2 = self.copy()
         sbox2.name = self.name + "_2"
         if dx == dmax:
-            sbox1.maxCoord[0] = (self.maxCoord[0] + self.minCoord[0]) * 0.5
-            sbox2.minCoord[0] = sbox1.maxCoord[0]
+            sbox1.max.X = (self.max.X + self.min.X) * 0.5
+            sbox2.min.X = sbox1.max.X
         elif dy == dmax:
-            sbox1.maxCoord[1] = (self.maxCoord[1] + self.minCoord[1]) * 0.5
-            sbox2.minCoord[1] = sbox1.maxCoord[1]
+            sbox1.max.Y = (self.max.Y + self.min.Y) * 0.5
+            sbox2.min.Y = sbox1.max.Y
         else:
-            sbox1.maxCoord[2] = (self.maxCoord[2] + self.minCoord[2]) * 0.5
-            sbox2.minCoord[2] = sbox1.maxCoord[2]
+            sbox1.max.Z = (self.max.Z + self.min.Z) * 0.5
+            sbox2.min.Z = sbox1.max.Z
 
         faceCGs = self.calcAllFacetsCG(self.facets, fv_indices, points)
 
@@ -115,8 +122,8 @@ class SubDivBoxTree(Box3DIntersection):
 
     def copy(self):
         cb = SubDivBoxTree(self.mesh)
-        cb.setMinCoord(self.minCoord.copy())
-        cb.setMaxCoord(self.maxCoord.copy())
+        cb.min.copyFrom(self.min)
+        cb.max.copyFrom(self.max)
         return cb
 
     def addFacet(self, fh):
