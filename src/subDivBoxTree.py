@@ -50,11 +50,11 @@ class SubDivBoxTree(Box3DIntersection):
 
     def createTree(self, fv_indices: [], points: []):
         if self.numFacets > self._maxfacets:
-            self.subdivideOn2New(fv_indices, points)
+            self.subdivideOn2(fv_indices, points)
             for node in self.nodes:
                 node.createTree(fv_indices, points)
 
-    def subdivideOn2New(self, fv_indices: [], points: []):
+    def subdivideOn2(self, fv_indices: [], points: []):
         # determine max deltas of bbox
         dx = self.maxCoord[0] - self.minCoord[0]
         dy = self.maxCoord[1] - self.minCoord[1]
@@ -102,7 +102,6 @@ class SubDivBoxTree(Box3DIntersection):
     """
     Utilitiy functions
     """
-    
     def printTreeInfo(self):
         print(self.name, end="", flush=True)
         if self.isleaf:
