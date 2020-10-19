@@ -24,6 +24,8 @@ class Box3DIntersection(BBox):
         self._maxCoord = bbox.maxCoord
 
     def intersectsWithRay(self, ray: Ray):
+        # originated from https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
+        # Find parameter t of ray for minimum and maximum bounds
         txmin = self.rayIntersection(self.minCoord, ray, 0)
         txmax = self.rayIntersection(self.maxCoord, ray, 0)
 
@@ -49,16 +51,18 @@ class Box3DIntersection(BBox):
             tzmin = _tzmax
             tzmax = _tzmin
 
+        # ray does not hit the box in x or y direction
         if (txmin > tymax) | (tymin > tymax):
             return False
 
         tmin = max(txmin, tymin, tzmin)
         tmax = min(txmax, tymax, tzmax)
 
+        # ray does not hit the box in z direction
         if (tmin > tzmax) | (tzmin > tmax):
             return False
 
-        return True & (tmin > 0.0) & (tmax > 0.0)
+        return (tmin > 0.0) & (tmax > 0.0)
 
     def setMinCoord(self, minCoord):
         self._minCoord = minCoord

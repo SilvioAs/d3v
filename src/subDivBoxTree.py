@@ -8,6 +8,18 @@ from rayTracing import Box3DIntersection
 
 class SubDivBoxTree(Box3DIntersection):
     def __init__(self, mesh):
+        """
+        SubDixBoxTree is a datastructure for 3D geometries consisting of triangles.
+        The triangles (= facets) of the geometry are divided into groups.
+        The amount of triangles per group is defined by _maxFacets.
+        The idea is that one SubDixBoxTree is created for every geometry added to basicpainter.
+        SubDixBoxTree yields a performance increase in the selection of a facet of the corresponding geometry.
+        The performance increase depends on the number of facets.
+        SubDixBoxTree is currently working only for triangle facets.
+
+        :param mesh: openmesh.Trimesh. Mesh that holds all vertices and faces of the geometry
+        """
+
         super().__init__()
         self.mesh = mesh
         self.facets = []
@@ -76,7 +88,9 @@ class SubDivBoxTree(Box3DIntersection):
             sbox1.maxCoord[2] = (self.maxCoord[2] + self.minCoord[2]) * 0.5
             sbox2.minCoord[2] = sbox1.maxCoord[2]
 
-        faceCGs = self.calcAllFacetsCG(self.facets, fv_indices, points)
+        fv_indices = fv_indices[self.facets]
+        face_vertices = points[fv_indices]
+        faceCGs = face_vertices.sum(axis=1) / 3
 
         isIn_sbox1 = sbox1.isIn_array(faceCGs)
         facets_sbox1 = self.facets[isIn_sbox1]
@@ -91,13 +105,6 @@ class SubDivBoxTree(Box3DIntersection):
             self.nodes.append(sbox1)
         if sbox2.numFacets > 0:
             self.nodes.append(sbox2)
-
-    @staticmethod
-    def calcAllFacetsCG(face_indices, all_fv_indices, points):
-        fv_indices = all_fv_indices[face_indices]
-        face_vertices = points[fv_indices]
-        faceCGs = face_vertices.sum(axis=1) / 3
-        return faceCGs
 
     """
     Utilitiy functions

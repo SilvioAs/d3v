@@ -21,13 +21,10 @@ class DefaultSelector(Selector):
         if not len(geometry):
             return
         sis = []
-        intrsectLeafs = []
         for geo in geometry:
-            isInBox = True
             # 1. test bounding box
             ray = Ray([los[0].x(), los[0].y(), los[0].z()], [los[1].x(), los[1].y(), los[1].z()])
-            # ray = Ray([los[1].x(), los[1].y(), los[1].z()], [los[0].x(), los[0].y(), los[0].z()])
-            intrsectLeafs.clear()
+            intrsectLeafs = []
             isInBox, intrsectLeafs = geo.subdivboxtree.getIntersectedLeafs(ray, intrsectLeafs)
 
             points = geo.mesh.points()
@@ -36,7 +33,7 @@ class DefaultSelector(Selector):
             # 2. test mesh in intersected subdivision box tree leafs
             if isInBox:
                 for leaf in intrsectLeafs:
-                    meshres = self.getMeshInterscectionSDBT(ray, leaf.facets, points, fv_indices)
+                    meshres = self.getMeshInterscection(ray, leaf.facets, points, fv_indices)
                     # meshres = self.getMeshInterscectionSDBTNew(ray, leaf.facets, geo.mesh)
                     if len(meshres) > 0:
                         si = SelectionInfo()
@@ -63,7 +60,7 @@ class DefaultSelector(Selector):
         # obavijesti sve zainteresirane da je selekcija promijenjena
         Signals.get().selectionChanged.emit(si)
 
-    def getMeshInterscectionSDBT(self, ray: Ray, fhlist, points, fv_indices):
+    def getMeshInterscection(self, ray: Ray, fhlist, points, fv_indices):
         infinity = float("inf")
 
         chosen_fv_indices = fv_indices[fhlist]
