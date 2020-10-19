@@ -102,6 +102,7 @@ class SubDivBoxTree(Box3DIntersection):
     """
     Utilitiy functions
     """
+    
     def printTreeInfo(self):
         print(self.name, end="", flush=True)
         if self.isleaf:
