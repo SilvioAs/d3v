@@ -27,13 +27,13 @@ class SubDivBoxTree(Box3DIntersection):
         self._maxfacets = 1000
         self.name = ""
 
-    def getIntersectedLeafs(self, ray, intrsectLeafs):
-        if self.intersectsWithRay(ray):
+    def getIntersectedLeafs(self, o, d, intrsectLeafs):
+        if self.intersectsWithRay(o, d):
             if self.isleaf:
                 intrsectLeafs.append(self)
             else:
                 for node in self.nodes:
-                    isInBox, intrsectLeafs = node.getIntersectedLeafs(ray, intrsectLeafs)
+                    isInBox, intrsectLeafs = node.getIntersectedLeafs(o, d, intrsectLeafs)
 
         return len(intrsectLeafs) > 0, intrsectLeafs
 
@@ -42,19 +42,15 @@ class SubDivBoxTree(Box3DIntersection):
             self.mesh.request_face_normals()
             self.mesh.update_face_normals()
 
-        ar_fv_indices = self.mesh.fv_indices().tolist()
-        ar_points = self.mesh.points().tolist()
-        self.createTreeRootList(box, ar_fv_indices, ar_points)
+        fv_indices = self.mesh.fv_indices()
+        points = self.mesh.points()
 
-    def createTreeRootList(self, box: BBox, fv_indices: [], points: []):
         tsTR = time.perf_counter()
         self.setFromBBox(box)
         self.name = "root"
         nf = len(fv_indices)
         facets = np.array(range(nf))
         self.setFacets(facets)
-        fv_indices = np.array(fv_indices)
-        points = np.array(points)
         self.createTree(fv_indices, points)
         dtTR = time.perf_counter() - tsTR
         print("Tree creation time, s:", dtTR)

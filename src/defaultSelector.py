@@ -18,14 +18,24 @@ class DefaultSelector(Selector):
         print("Selection time, s:", dtS)
 
     def selectList(self, los, geometry):
+        """
+        Determines if a ray defined by los variable intersects with a geometry contained in geometry variable. Emits a
+        signal containing the selected geometry instead of returning the selected geometry.
+
+        :param los: line of sight. los = [o, d], where o is the position of the viewer and d is the direction to the
+        targeted object. o and d are given as QVector3D
+        :param geometry: list holding the current geometries
+        :return:
+        """
         if not len(geometry):
             return
         sis = []
         for geo in geometry:
             # 1. test bounding box
-            ray = Ray([los[0].x(), los[0].y(), los[0].z()], [los[1].x(), los[1].y(), los[1].z()])
+            o = [los[0].x(), los[0].y(), los[0].z()]
+            d = [los[1].x(), los[1].y(), los[1].z()]
             intrsectLeafs = []
-            isInBox, intrsectLeafs = geo.subdivboxtree.getIntersectedLeafs(ray, intrsectLeafs)
+            isInBox, intrsectLeafs = geo.subdivboxtree.getIntersectedLeafs(o, d, intrsectLeafs)
 
             points = geo.mesh.points()
             fv_indices = geo.mesh.fv_indices()
@@ -33,7 +43,7 @@ class DefaultSelector(Selector):
             # 2. test mesh in intersected subdivision box tree leafs
             if isInBox:
                 for leaf in intrsectLeafs:
-                    meshres = self.getMeshInterscection(ray, leaf.facets, points, fv_indices)
+                    meshres = self.getMeshInterscection(o, d, leaf.facets, points, fv_indices)
                     # meshres = self.getMeshInterscectionSDBTNew(ray, leaf.facets, geo.mesh)
                     if len(meshres) > 0:
                         si = SelectionInfo()
@@ -60,13 +70,25 @@ class DefaultSelector(Selector):
         # obavijesti sve zainteresirane da je selekcija promijenjena
         Signals.get().selectionChanged.emit(si)
 
-    def getMeshInterscection(self, ray: Ray, fhlist, points, fv_indices):
+    def getMeshInterscection(self, o, d, fhlist, points, fv_indices):
+        """
+        Calculates the facet with which a ray intersects. If several facets intersect with the incident ray, the facet
+        with minimum distance from ray origin is returned.
+
+        :param o: ray origin
+        :param d: ray propagation delta: d = [dx, dy, dz]
+        :param fhlist: Indices of the faces for which an intersection should be proved.
+        :param points: array holding all vertices of the geometry.
+        :param fv_indices: array holding vertex indices of each face. fhlist.shape = (n, 3), where n is the amount of
+        faces.
+        :return: A list holding the distance and the index of the intersected facet with minimum distance to ray origin.
+        """
         infinity = float("inf")
 
         chosen_fv_indices = fv_indices[fhlist]
         chosen_points = points[chosen_fv_indices]
 
-        ds = self.rayIntersectsTriangleMollerTrumboreSDBT(ray, chosen_points[:, 0], chosen_points[:, 1], chosen_points[:, 2])
+        ds = self.rayIntersectsTriangleMollerTrumboreSDBT(o, d, chosen_points[:, 0], chosen_points[:, 1], chosen_points[:, 2])
         mask = ds != infinity
         intersectedFacets = fhlist[mask]
         intersectedFacetsDistances = ds[mask]
@@ -78,27 +100,36 @@ class DefaultSelector(Selector):
         result = [intersectedFacetsDistances[idx_min], intersectedFacets[idx_min]]
         return result
 
-    def rayIntersectsTriangleMollerTrumboreSDBT(self, ray: Ray, v0, v1, v2):
-        # https://en.wikipedia.org/wiki/Möller–Trumbore_intersection_algorithm
-        # base on  Java Implementation code
+    def rayIntersectsTriangleMollerTrumboreSDBT(self, o, d, v0, v1, v2):
+        """
+        Calculates if a ray defined by (o, d) intersects with which triangles given by v0, v1, v2 holding the
+        coordinates of the triangle corners. This function is meant for processing of several triangles,
+        so v0, v1, v2 each have dim = (n, 3), where n is the amount of triangles.
+        Algorithm originated from https://en.wikipedia.org/wiki/Möller–Trumbore_intersection_algorithm
+
+        :param o: ray origin
+        :param d: ray propagation delta: d = [dx, dy, dz]
+        :param v0: (x, y, z) coordinate of first triangle corner
+        :param v1: (x, y, z) coordinate of second triangle corner
+        :param v2: (x, y, z) coordinate of third triangle corner
+        :return: boolean array holding True if ray intersects with corresponding triangle and False otherwise/
+        """
         e = 0.00000001
         infinity = float("inf")
-        K = ray.d
-        P0 = ray.o
         edge1 = np.subtract(v1, v0)
         edge2 = np.subtract(v2, v0)
-        h = np.cross(K, edge2)
+        h = np.cross(d, edge2)
         a = np.sum(edge1 * h, axis=1)
         results = np.zeros(len(a))
         results[(-e < a) & (a < e)] = infinity
 
         f = 1.0 / a
-        s = np.subtract(P0, v0)
+        s = np.subtract(o, v0)
         u = np.multiply(f, np.sum(s * h, axis=1))
         results[(u < 0.0) | (u > 1.0)] = infinity
 
         q = np.cross(s, edge1)
-        v = f * np.sum(K * q, axis=1)
+        v = f * np.sum(d * q, axis=1)
         results[(v < 0.0) | (u + v > 1.0)] = infinity
 
         t = np.multiply(f, np.sum(edge2 * q, axis=1))

@@ -7,6 +7,11 @@ from mpl_toolkits import mplot3d
 
 class Ray:
     def __init__(self, o, d):
+        """
+        Class describing a n-dimensional ray with ability to propagate
+        :param o: ray origin
+        :param d: ray propagation delta
+        """
         self.o = np.array(o)
         self.d = np.array(d)
         self.d_inv = 1 / self.d
@@ -23,17 +28,24 @@ class Box3DIntersection(BBox):
         self._minCoord = bbox.minCoord
         self._maxCoord = bbox.maxCoord
 
-    def intersectsWithRay(self, ray: Ray):
-        # originated from https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
-        # Find parameter t of ray for minimum and maximum bounds
-        txmin = self.rayIntersection(self.minCoord, ray, 0)
-        txmax = self.rayIntersection(self.maxCoord, ray, 0)
+    def intersectsWithRay(self, o, d):
+        """
+        Determines if a ray defined by (o, d) intersects with the bounding box defined in this class. Algorithm
+        originated from https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
 
-        tymin = self.rayIntersection(self.minCoord, ray, 1)
-        tymax = self.rayIntersection(self.maxCoord, ray, 1)
+        :param o: ray origin
+        :param d: ray propagation delta: d = [dx, dy, dz]
+        :return: True if ray intersects with bounding box and false otherwise
+        """
+        ray = Ray(o, d)
+        txmin = self.rayIntersection(self.minCoord[0], ray.o[0], ray.d_inv[0])
+        txmax = self.rayIntersection(self.maxCoord[0], ray.o[0], ray.d_inv[0])
 
-        tzmin = self.rayIntersection(self.minCoord, ray, 2)
-        tzmax = self.rayIntersection(self.maxCoord, ray, 2)
+        tymin = self.rayIntersection(self.minCoord[1], ray.o[1], ray.d_inv[1])
+        tymax = self.rayIntersection(self.maxCoord[1], ray.o[1], ray.d_inv[1])
+
+        tzmin = self.rayIntersection(self.minCoord[2], ray.o[2], ray.d_inv[2])
+        tzmax = self.rayIntersection(self.maxCoord[2], ray.o[2], ray.d_inv[2])
 
         # Swap min max values corresponding to direction of ray
         if ray.d[0] < 0:
@@ -71,8 +83,17 @@ class Box3DIntersection(BBox):
         self._maxCoord = maxCoord
 
     @staticmethod
-    def rayIntersection(bbox, ray: Ray, idx):
-        t = (bbox[idx] - ray.o[idx]) * ray.d_inv[idx]
+    def rayIntersection(bound, ray_origin, ray_delta_inv):
+        """
+        Finds parameter t, with which a 1D ray defined by (o, d) intersects with bound. The ray propagates by formula:
+        f(t) = ray_origin + 1 / ray_delta_inv * t
+
+        :param bound: Boundary of bounding box
+        :param ray_origin: Origin of 1D ray
+        :param ray_delta_inv: Propagation delta of 1D ray
+        :return: Parameter t corresponding to intersection of ray and bound
+        """
+        t = (bound - ray_origin) * ray_delta_inv
         return t
 
     def isIn_array(self, points):
@@ -112,9 +133,6 @@ if __name__ == "__main__":
 
     bbox = Box3DIntersection([b0x, b0y, b0z], [b1x, b1y, b1z])
 
-    ray = Ray([1, 1, 1], [1.1, 1.1, 1.1])
-    print(bbox.intersectsWithRay(ray))
-
     n = 25
     t = 3
     ps_start = np.zeros((n, 3))
@@ -124,19 +142,19 @@ if __name__ == "__main__":
         ox = 1
         oy = 1
         oz = 1
-        # ox = random.random() * 2
-        # oy = random.random() * 2
-        # oz = random.random() * 2
         dx = random.random() * 2
         dy = random.random() * 2
         dz = random.random() * 2
 
-        ray = Ray([ox, oy, oz], [dx, dy, dz])
+        o = [ox, oy, oz]
+        d = [dx, dy, dz]
 
-        ps_start[i] = [ox, oy, oz]
+        ray = Ray(o, d)
+
+        ps_start[i] = o
         ps_end[i] = ray.propagate(t)
 
-        ray_intersects = bbox.intersectsWithRay(ray)
+        ray_intersects = bbox.intersectsWithRay(ray.o, ray.d)
         if ray_intersects:
             colors.append('green')
         else:

@@ -21,16 +21,19 @@ import time
 
 
 class SelModes(Enum):
-    FULL_FILL_NEWMESH = 0  # Selected Mesh drawn fully by adding a new mesh with a new color
-    FACET_WF = 1    # Facet by wireframe using glPolygonMode
-    FULL_FILL_SHADER = 2   # Full geometry drawn fully in pink by second shader
-    FACET_FILL = 3     # improve with glOffset
-    FULL_WF = 4    # Full geometry by wireframe by glPolygonMode
-    FACET_FILL_GLOFFSET = 5
+    FULL_FILL_NEWMESH = 0       # Selected Mesh drawn fully by adding a new mesh with a new color
+    FACET_WF = 1                # Selected Facet marked by wireframe using glPolygonMode
+    FULL_FILL_SHADER = 2        # Full geometry, which is is selected, is colored in pink by a second shader
+    FACET_FILL = 3              # Selected facet is colored in pink with a manual added offset to avoid z-fight
+    FULL_WF = 4                 # Full geometry marked by pink wireframe using glPolygonMode
+    FACET_FILL_GLOFFSET = 5     # Selected facet is colored in pink with glPolygonOffset to avoid z-fight
 
 
 class BasicPainter(Painter):
     def __init__(self):
+        """
+        The type how a selected plane / geometry is visualized can be specified by self.selType
+        """
         super().__init__()
         self._dentsvertsdata = {}  # dictionary that holds vertex data for all primitive and  submodel combinations
         self._geo2Add = []
@@ -51,12 +54,12 @@ class BasicPainter(Painter):
         self.addGeoCount = 0
         Signals.get().selectionChanged.connect(self.onSelected)
         self.paintDevice = 0
-        # self.selType = SelModes.FULL_FILL_NEWMESH  # 0 - full geometry by addMeshData
-        # self.selType = SelModes.FACET_WF  # 1 - facet by wireframe
-        # self.selType = SelModes.FULL_FILL_SHADER # 2 - full geometry by shader2
-        # self.selType = SelModes.FACET_FILL  # Facet by filled triangle with z-fight compensation
-        # self.selType = SelModes.FULL_WF  # Full geometry by PolygonMode
-        self.selType = SelModes.FACET_FILL_GLOFFSET
+        # self.selType = SelModes.FULL_FILL_NEWMESH     # 0 - full geometry by addMeshData
+        # self.selType = SelModes.FACET_WF              # 1 - facet by wireframe
+        # self.selType = SelModes.FULL_FILL_SHADER      # 2 - full geometry by shader2
+        # self.selType = SelModes.FACET_FILL            # 3 - Facet by filled triangle with z-fight compensation
+        self.selType = SelModes.FULL_WF               # 4 - Full geometry by PolygonMode
+        # self.selType = SelModes.FACET_FILL_GLOFFSET     # 5 - Facet by filled triangle with glPolygonOffset to avoid z-fight
         self._showBack = False
         self._multFactor = 1
         self.showBack = True
@@ -264,13 +267,24 @@ class BasicPainter(Painter):
         """
         return self._dentsvertsdata[key].appendlistdata_f3xyzf3nf4rgba(x, y, z, nx, ny, nz, r, g, b, a)
 
-    def appendlistdata_f3xyzf4rgba(self, key, x, y, z, r, g, b, a):
-        return self._dentsvertsdata[key].appendlistdata_f3xyzf4rgba(x, y, z, r, g, b, a)
-
     def setlistdata_f3xyzf3nf4rgba(self, key, vertex_data, normal_data, color_data):
+        """
+        Sets the vertex, normal and color data to VAO object
+        :param key: geometry key to which the vertex, normal and color data belongs
+        :param vertex_data: vertex coordinates as flattened array
+        :param normal_data: normal coordinates as flattened array
+        :param color_data: rgba values of each vertex as flattened array
+        :return:
+        """
         self._dentsvertsdata[key].setlistdata_f3xyzf3nf4rgba(vertex_data, normal_data, color_data)
 
     def setVertexCounter(self, key, n_faces):
+        """
+        Set the amount of vertices to VAO object
+        :param key: geometry key
+        :param n_faces: Amount of faces of corresponding geometry
+        :return:
+        """
         if self._showBack:
             self._dentsvertsdata[key].setVertexCounter(n_faces * 3 * 2)
         else:
@@ -493,7 +507,6 @@ class BasicPainter(Painter):
                     self.addSelData4oglmdl(key, self._si, self._si.geometry)
                 else:
                     raise Exception("Unhandled Selection Type!")
-                    # self.addSelData4oglmdl(key, self._si, self._si.geometry)
                 self.bindData(key)
 
     def updateGeometry(self):
@@ -514,6 +527,15 @@ class BasicPainter(Painter):
             self._doSelection = False
 
     def addSelData4oglmdl_withOffset(self, key, si, geometry):
+        """
+        Converts the vertices of the selected triangle to OpenGL data. Adds an offset to the vertex position to
+        compensate z-fight.
+
+        :param key: key under which the selected triangle is saved.
+        :param si: SelectionInfo holding the indices of the selected faces
+        :param geometry: geometry holding the mesh data
+        :return:
+        """
         mesh = geometry.mesh
         normals = mesh.face_normals().tolist()
         points = mesh.points().tolist()
@@ -536,10 +558,20 @@ class BasicPainter(Painter):
         return
 
     def addSelData4oglmdl(self, key, si, geometry):
+        """
+        Converts the vertices of the selected triangle to OpenGL data.
+
+        :param key: key under which the selected triangle is saved.
+        :param si: SelectionInfo holding the indices of the selected faces
+        :param geometry: geometry holding the mesh data
+        :return:
+        """
+
         mesh = geometry.mesh
-        normals = mesh.face_normals().tolist()
-        points = mesh.points().tolist()
-        face_indices = mesh.fv_indices().tolist()
+
+        normals = mesh.face_normals()
+        points = mesh.points()
+        face_indices = mesh.fv_indices()
         for fh in si.allfaces:
             vertex_indices = face_indices[fh]
             # n = mesh.normal(fh)
@@ -563,6 +595,13 @@ class BasicPainter(Painter):
         return
 
     def addMeshdata4oglmdl(self, key, geometry):
+        """
+        Converts the mesh data of a geometry to the vertex data necessary for OpenGL.
+
+        :param key: key under which the geometry is saved
+        :param geometry: geometry which mesh data is to be converted
+        :return:
+        """
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 
