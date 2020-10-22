@@ -280,6 +280,9 @@ class BasicPainter(Painter):
         else:
             self._dentsvertsdata[key].setVertexCounter(n_faces * 3)
 
+    def setVertexCounter_byNum(self, key, num_vertices):
+        self._dentsvertsdata[key].setVertexCounter(num_vertices)
+
     def appenddictitemsize(self, key, numents):
         """!
         Append dictionary item size with the specified number of entities
@@ -451,10 +454,18 @@ class BasicPainter(Painter):
         self.addGeoCount = self.addGeoCount + 1
         key = geometry.guid
         # self.resetmodel()
-        # self.initnewdictitem(key, GLEntityType.TRIA)
-        self.initnewdictitem(key, GLEntityType.QUAD)
+        self.initnewdictitem(key, GLEntityType.TRIA)
+        # self.initnewdictitem(key, GLEntityType.QUAD)
+
         nf = geometry.mesh.n_faces()
-        self.appenddictitemsize(key, nf)
+        fv_indices = geometry.mesh.fv_indices()
+        n_possible_triangles = fv_indices.shape[0] * fv_indices.shape[1]
+        mask_not_triangles = fv_indices == -1
+        not_triangles = fv_indices[mask_not_triangles]
+        n_not_triangles = len(not_triangles)
+        n_triangles = n_possible_triangles - n_not_triangles
+
+        self.appenddictitemsize(key, n_triangles)
         self.allocatememory(key)
         # tsAG1 = time.perf_counter()
         self.addMeshdata4oglmdl(key, geometry)
@@ -569,6 +580,114 @@ class BasicPainter(Painter):
         return
 
     def addMeshdata4oglmdl(self, key, geometry):
+        tsAMD = time.perf_counter()
+        mesh = geometry.mesh
+
+        # color data
+        cstype = 0  # color source type
+        if self.selType == SelModes.FULL_FILL_NEWMESH:
+            if self._si.geometry.guid == geometry.guid:
+                c = [1.0, 0.0, 1.0, 1.0]
+            else:
+                c = [0.4, 1.0, 1.0, 1.0]  # default color
+        elif mesh.has_face_colors():
+            ar_face_colors = mesh.face_colors()
+            cstype = 1
+        elif mesh.has_vertex_colors():
+            ar_vertex_colors = mesh.vertex_colors()
+            cstype = 2
+        else:
+            c = [0.4, 1.0, 1.0, 1.0]  # default color
+
+        # normals data
+        if not mesh.has_face_normals():  # normals are necessary for correct lighting effect
+            mesh.request_face_normals()
+            mesh.update_face_normals()
+
+        n_faces = mesh.n_faces()
+        fv_indices_np = mesh.fv_indices()
+        face_normals_np = mesh.face_normals()
+        ar_points = mesh.points()
+
+        n_vertices_max = len(fv_indices_np[0])
+
+        data_mesh_points_list = []
+        data_mesh_normals_list = []
+        data_mesh_colors_list = []
+        n_vertices = 0
+        for corner_idx in range(1, n_vertices_max-1):
+            not_existing_triangles = fv_indices_np[:, corner_idx+1] == -1
+            fv_indices_to_draw_all_vertices = fv_indices_np[~not_existing_triangles]
+            fv_indices_to_draw = fv_indices_to_draw_all_vertices[:, [0, corner_idx, corner_idx+1]]
+
+            fv_indices_flattened = fv_indices_to_draw.flatten()
+            mesh_points = ar_points[fv_indices_flattened]
+            data_mesh_points = mesh_points.flatten()
+
+            n_vertices += len(fv_indices_flattened)
+
+            face_normals_to_draw = face_normals_np[~not_existing_triangles]
+            mesh_normals = np.repeat(face_normals_to_draw, 3, axis=0)
+            data_mesh_normals = mesh_normals.flatten()
+
+            if cstype == 0:
+                # mesh_colors = np.tile(c, n_faces * 3)
+                mesh_colors = np.tile(c, len(fv_indices_flattened))
+                data_mesh_colors = mesh_colors.flatten()
+            elif cstype == 1:
+                mesh_colors = np.repeat(ar_face_colors, 3, axis=0)
+                data_mesh_colors = mesh_colors.flatten()
+            elif cstype == 2:
+                # Vertex colors has not been tested and is only implemented from context.
+                # --> Errors can occur.
+                data_mesh_colors = ar_vertex_colors[fv_indices_flattened]
+
+            if self._showBack:
+                n_vertices += len(fv_indices_flattened)
+                fv_indices_flattened_reversed = fv_indices_flattened[::-1]
+
+                reversed_mesh_points = ar_points[fv_indices_flattened_reversed]
+                reversed_mesh_points = reversed_mesh_points.flatten()
+
+                reversed_normals = -face_normals_np[::-1]
+                reversed_normals = np.repeat(reversed_normals, 3, axis=0)
+                reversed_normals = reversed_normals.flatten()
+
+                if cstype == 0:
+                    reversed_mesh_colors = data_mesh_colors
+                elif cstype == 1:
+                    reversed_mesh_colors = ar_face_colors[::-1]
+                    reversed_mesh_colors = np.repeat(reversed_mesh_colors, 3, axis=0)
+                    reversed_mesh_colors = reversed_mesh_colors.flatten()
+                elif cstype == 2:
+                    reversed_mesh_colors = ar_vertex_colors[fv_indices_flattened_reversed]
+                    reversed_mesh_colors = reversed_mesh_colors.flatten()
+
+                data_mesh_points = np.concatenate([data_mesh_points, reversed_mesh_points])
+                data_mesh_normals = np.concatenate([data_mesh_normals, reversed_normals])
+                data_mesh_colors = np.concatenate([data_mesh_colors, reversed_mesh_colors])
+
+            data_mesh_points_list.append(data_mesh_points)
+            data_mesh_normals_list.append(data_mesh_normals)
+            data_mesh_colors_list.append(data_mesh_colors)
+
+        data_mesh_points_list = np.concatenate([*data_mesh_points_list])
+        data_mesh_normals_list = np.concatenate([*data_mesh_normals_list])
+        data_mesh_colors_list = np.concatenate([*data_mesh_colors_list])
+
+        vertex_data = np.array(data_mesh_points_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+        normal_data = np.array(data_mesh_normals_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+        color_data = np.array(data_mesh_colors_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+
+        self.setlistdata_f3xyzf3nf4rgba(key, vertex_data, normal_data, color_data)
+        # self.setVertexCounter(key, n_faces)
+        self.setVertexCounter_byNum(key, n_vertices)
+
+        dtAMD = time.perf_counter() - tsAMD
+        print("Add mesh data total:", dtAMD)
+        return
+
+    def addMeshdata4oglmdl_quad(self, key, geometry):
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
 

@@ -40,7 +40,7 @@ class DefaultSelector(Selector):
             # 2. test mesh in intersected subdivision box tree leafs
             if isInBox:
                 for leaf in intrsectLeafs:
-                    meshres = self.getMeshInterscectionSDBTNew(ray, leaf.facets, points, fv_indices)
+                    meshres = self.getMeshInterscectionSDBTNew_polygon(ray, leaf.facets, points, fv_indices)
                     # meshres = self.getMeshInterscectionSDBTNew(ray, leaf.facets, geo.mesh)
                     if len(meshres) > 0:
                         si = SelectionInfo()
@@ -87,6 +87,32 @@ class DefaultSelector(Selector):
 
         idx_min = np.argmin(intersectedFacetsDistances)
         result = [intersectedFacetsDistances[idx_min], intersectedFacets[idx_min]]
+        return result
+
+    def getMeshInterscectionSDBTNew_polygon(self, ray: dmnsn_ray, fhlist, points, fv_indices):
+        chosen_fv_indices = fv_indices[fhlist]
+        chosen_points = points[chosen_fv_indices]
+
+        facets_list = []
+        distances_list = []
+        n_corners = len(chosen_points[0])
+        for corner_idx in range(1, n_corners - 1):
+            facets, distances = self.triIntersectFacetsDistances(ray,
+                                                                 fhlist,
+                                                                 chosen_points[:, 0],
+                                                                 chosen_points[:, corner_idx],
+                                                                 chosen_points[:, corner_idx+1])
+            facets_list.append(facets)
+            distances_list.append(distances)
+
+        facets_return = np.concatenate([*facets_list])
+        distances_return = np.concatenate([*distances_list])
+
+        if len(facets_return) == 0:
+            return []
+
+        idx_min = np.argmin(distances_return)
+        result = [distances_return[idx_min], facets_return[idx_min]]
         return result
 
     def getMeshInterscectionSDBTNew_notOptimized(self, ray: dmnsn_ray, fhlist, mesh: om.TriMesh):
