@@ -24,6 +24,7 @@ from multiprocessing import Pool, Process, Manager, Queue, Array
 import multiprocessing
 import cProfile
 
+
 class SelModes(Enum):
     FULL_FILL_NEWMESH = 0  # Selected Mesh drawn fully by adding a new mesh with a new color
     FACET_WF = 1    # Facet by wireframe using glPolygonMode
@@ -82,6 +83,11 @@ class BasicPainter(Painter):
         self.lineWidth = 3.0
         self.polyOffsetFactor = 1.0
         self.polyOffsetUnits = 1.0
+
+        self.showModelWireframe = True
+        if self.showModelWireframe:
+            self.line_indices = []
+
 
     @property
     def showBack(self):
@@ -598,7 +604,13 @@ class BasicPainter(Painter):
         data_mesh_normals_list = np.array([])
         data_mesh_colors_list = np.array([])
         n_all_vertices = 0
-        for corner_idx in range(1, n_vertices_max - 1):
+
+        max_iter = n_vertices_max - 1
+
+        if self.showModelWireframe:
+            line_indices = []
+
+        for corner_idx in range(1, max_iter):
             if n_vertices_max > 3:
                 existing_triangles = fv_indices[:, corner_idx + 1] != -1
 
@@ -618,6 +630,29 @@ class BasicPainter(Painter):
             n_faces = len(fv_indices_to_draw)
 
             vertexData = self.createVertexData(fv_indices_flattened, points)
+
+            if self.showModelWireframe:
+                n_vertices = int(len(vertexData) / 3)
+                wf_v_indices = range(n_vertices)
+                wf_v_indices = np.repeat(wf_v_indices, 2)[1:-1]
+                if corner_idx == 1:
+                    mask = np.ones(len(wf_v_indices), dtype=np.bool)
+                    mask[4::6] = False
+                    mask[5::6] = False
+
+                elif corner_idx == max_iter - 1:
+                    mask = np.ones(len(wf_v_indices), dtype=np.bool)
+                    mask[0::6] = False
+                    mask[1::6] = False
+
+                else:
+                    mask = np.zeros(len(wf_v_indices), dtype=np.bool)
+                    mask[2::6] = True
+                    mask[3::6] = True
+
+                wf_v_indices_trunc = wf_v_indices[mask]
+                line_indices = np.concatenate([line_indices, wf_v_indices_trunc])
+
 
             normalData = self.createNormaldata(face_normals_to_draw)
 
@@ -650,6 +685,9 @@ class BasicPainter(Painter):
                 data_mesh_points_list = np.concatenate([data_mesh_points_list, vertexData])
                 data_mesh_normals_list = np.concatenate([data_mesh_normals_list, normalData])
                 data_mesh_colors_list = np.concatenate([data_mesh_colors_list, colorData])
+
+        if self.showModelWireframe:
+            self.line_indices = line_indices
 
         vertex_data = np.array(data_mesh_points_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
         normal_data = np.array(data_mesh_normals_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
