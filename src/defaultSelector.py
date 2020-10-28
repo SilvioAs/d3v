@@ -92,16 +92,21 @@ class DefaultSelector(Selector):
     def getMeshInterscectionSDBTNew_polygon(self, ray: dmnsn_ray, fhlist, points, fv_indices):
         chosen_fv_indices = fv_indices[fhlist]
         chosen_points = points[chosen_fv_indices]
+        # exclude facets with indices -1
 
         facets_list = []
         distances_list = []
         n_corners = len(chosen_points[0])
         for corner_idx in range(1, n_corners - 1):
+            existing_triangles = chosen_fv_indices[:, corner_idx+1] != -1
+            existing_fhlist = fhlist[existing_triangles]
+            existing_chosen_points = chosen_points[existing_triangles]
+
             facets, distances = self.triIntersectFacetsDistances(ray,
-                                                                 fhlist,
-                                                                 chosen_points[:, 0],
-                                                                 chosen_points[:, corner_idx],
-                                                                 chosen_points[:, corner_idx+1])
+                                                                 existing_fhlist,
+                                                                 existing_chosen_points[:, 0],
+                                                                 existing_chosen_points[:, corner_idx],
+                                                                 existing_chosen_points[:, corner_idx+1])
             facets_list.append(facets)
             distances_list.append(distances)
 
