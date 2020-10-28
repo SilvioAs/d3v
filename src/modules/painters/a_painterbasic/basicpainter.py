@@ -676,9 +676,9 @@ class BasicPainter(Painter):
     def addArrays4oglmdl(self, key, fv_indices, points, face_normals, cstype, c, face_colors, vertex_colors):
         n_vertices_max = len(fv_indices[0])
 
-        data_mesh_points_list = []
-        data_mesh_normals_list = []
-        data_mesh_colors_list = []
+        data_mesh_points_list = np.array([])
+        data_mesh_normals_list = np.array([])
+        data_mesh_colors_list = np.array([])
         n_all_vertices = 0
         for corner_idx in range(1, n_vertices_max - 1):
             if n_vertices_max > 3:
@@ -715,10 +715,8 @@ class BasicPainter(Painter):
                 n_all_vertices += len(fv_indices_flattened_reversed)
 
                 reversed_mesh_points = self.createVertexData(fv_indices_flattened_reversed, points)
-                vertexData = np.concatenate([vertexData, reversed_mesh_points])
 
                 reversed_normals = self.createNormaldata(-face_normals_to_draw[::-1])
-                normalData = np.concatenate([normalData, reversed_normals])
 
                 if cstype == 0:
                     reversed_colors = colorData
@@ -727,11 +725,13 @@ class BasicPainter(Painter):
                 elif cstype == 2:
                     reversed_colors = self.createVertexColorData(vertex_colors, fv_indices_flattened_reversed)
 
-                colorData = np.concatenate([colorData, reversed_colors])
-
-            data_mesh_points_list = np.concatenate([data_mesh_points_list, vertexData])
-            data_mesh_normals_list = np.concatenate([data_mesh_colors_list, normalData])
-            data_mesh_colors_list = np.concatenate([data_mesh_colors_list, colorData])
+                data_mesh_points_list = np.concatenate([data_mesh_points_list, vertexData, reversed_mesh_points])
+                data_mesh_normals_list = np.concatenate([data_mesh_colors_list, normalData, reversed_normals])
+                data_mesh_colors_list = np.concatenate([data_mesh_colors_list, colorData, reversed_colors])
+            else:
+                data_mesh_points_list = np.concatenate([data_mesh_points_list, vertexData])
+                data_mesh_normals_list = np.concatenate([data_mesh_colors_list, normalData])
+                data_mesh_colors_list = np.concatenate([data_mesh_colors_list, colorData])
 
         vertex_data = np.array(data_mesh_points_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
         normal_data = np.array(data_mesh_normals_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
