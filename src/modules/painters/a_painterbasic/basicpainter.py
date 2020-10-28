@@ -215,6 +215,11 @@ class BasicPainter(Painter):
                 value.drawvao(self.glf)
                 self.program.release()
 
+            elif type(key) == str:
+                if "_wf" in key:
+                    self.wireframeProgram.bind()
+                    value.drawvao(self.glf)
+                    self.wireframeProgram.release()
             else:
                 self.program.bind()
                 value.drawvao(self.glf)
@@ -461,11 +466,9 @@ class BasicPainter(Painter):
         key = geometry.guid
         # self.resetmodel()
         self.initnewdictitem(key, GLEntityType.TRIA)
-        # self.initnewdictitem(key, GLEntityType.QUAD)
 
-        nf = geometry.mesh.n_faces()
         fv_indices = geometry.mesh.fv_indices()
-        n_possible_triangles = fv_indices.shape[0] * fv_indices.shape[1]
+        n_possible_triangles = fv_indices.shape[0] * (fv_indices.shape[1] - 2)
         mask_not_triangles = fv_indices == -1
         not_triangles = fv_indices[mask_not_triangles]
         n_not_triangles = len(not_triangles)
@@ -473,15 +476,29 @@ class BasicPainter(Painter):
 
         self.appenddictitemsize(key, n_triangles)
         self.allocatememory(key)
-        # tsAG1 = time.perf_counter()
-        cProfile.runctx("self.addMeshdata4oglmdl(key, geometry)", globals(), locals())
-        # self.addMeshdata4oglmdl(key, geometry)
-        # dtAG1 = time.perf_counter() - tsAG1
+
+        # cProfile.runctx("self.addMeshdata4oglmdl(key, geometry)", globals(), locals())
+        self.addMeshdata4oglmdl(key, geometry)
+
         self.bindData(key)
 
-        # dtAG = time.perf_counter() - tsAG
-        # print("Add geometry time, s:", dtAG)
-        # print("addMeshdata4oglmdl time, s:", dtAG)
+        if self.showModelWireframe:
+            self.addGeoCount = self.addGeoCount + 1
+            key = str(key) + "_wf"
+            self.initnewdictitem(key, GLEntityType.LINE)
+
+            n_possible_lines = fv_indices.shape[0] * fv_indices.shape[1]
+            mask_not_lines = fv_indices == -1
+            not_lines = fv_indices[mask_not_lines]
+            n_not_lines = len(not_lines)
+            n_lines = n_possible_lines - n_not_lines
+
+            self.appenddictitemsize(key, n_lines)
+            self.allocatememory(key)
+
+            self.addWFdata4oglmdl(key, geometry)
+
+            self.bindData(key)
 
     def delayedRebuildGeometry(self, geometry: Geometry):
         key = geometry.guid
@@ -558,6 +575,43 @@ class BasicPainter(Painter):
         self.addArrays4oglmdl(key, selected_fv_indices, points, selected_face_normals, cstype, c, None, None)
         return
 
+    def addWFdata4oglmdl(self, key, geometry):
+        mesh = geometry.mesh
+        fv_indices = mesh.fv_indices()
+        points = mesh.points()
+
+        n_corners_max = len(fv_indices[0])
+
+        faces_drawn = np.zeros(len(fv_indices), dtype=np.bool)
+        corner_idx_array = range(2, n_corners_max)[::-1]
+        line_indices = []
+        for corner_idx in corner_idx_array:
+            existing = fv_indices[:, corner_idx] != -1
+
+            existing_fv_indices = fv_indices[existing & ~faces_drawn]
+            existing_fv_indices = existing_fv_indices[:, 0: corner_idx + 1]
+            faces_drawn = faces_drawn | existing
+
+            fv_indices_repeated = np.repeat(existing_fv_indices, 2, axis=1)
+            fv_indices_repeated[:, :-1] = fv_indices_repeated[:, 1:]
+            fv_indices_repeated[:, -1] = fv_indices_repeated[:, 0]
+            fv_indices_repeated = fv_indices_repeated.flatten()
+
+            line_indices = np.concatenate([line_indices, fv_indices_repeated])
+
+        line_indices = line_indices.astype(np.uint)
+        n_vertices = len(line_indices)
+        vertices = points[line_indices]
+        vertices = np.array(vertices, dtype=np.float32).flatten()
+        colors = np.array([[1.0, 0.0, 0.0, 1.0] for v_idx in range(2 * n_vertices)], dtype=np.float32).flatten()
+        normals = np.array([[1.0, 1.0, 1.0] for v_idx in range(2 * n_vertices)], dtype=np.float32).flatten()
+        # normals = np.array([])
+
+        self.setlistdata_f3xyzf3nf4rgba(key, vertices, normals, colors)
+        self.setVertexCounter_byNum(key, n_vertices)
+
+        print("BP")
+
     def addMeshdata4oglmdl(self, key, geometry):
         tsAMD = time.perf_counter()
         mesh = geometry.mesh
@@ -586,7 +640,6 @@ class BasicPainter(Painter):
             mesh.request_face_normals()
             mesh.update_face_normals()
 
-        n_faces = mesh.n_faces()
         fv_indices_np = mesh.fv_indices()
         face_normals_np = mesh.face_normals()
         ar_points = mesh.points()
@@ -606,9 +659,6 @@ class BasicPainter(Painter):
         n_all_vertices = 0
 
         max_iter = n_vertices_max - 1
-
-        if self.showModelWireframe:
-            line_indices = []
 
         for corner_idx in range(1, max_iter):
             if n_vertices_max > 3:
@@ -630,29 +680,6 @@ class BasicPainter(Painter):
             n_faces = len(fv_indices_to_draw)
 
             vertexData = self.createVertexData(fv_indices_flattened, points)
-
-            if self.showModelWireframe:
-                n_vertices = int(len(vertexData) / 3)
-                wf_v_indices = range(n_vertices)
-                wf_v_indices = np.repeat(wf_v_indices, 2)[1:-1]
-                if corner_idx == 1:
-                    mask = np.ones(len(wf_v_indices), dtype=np.bool)
-                    mask[4::6] = False
-                    mask[5::6] = False
-
-                elif corner_idx == max_iter - 1:
-                    mask = np.ones(len(wf_v_indices), dtype=np.bool)
-                    mask[0::6] = False
-                    mask[1::6] = False
-
-                else:
-                    mask = np.zeros(len(wf_v_indices), dtype=np.bool)
-                    mask[2::6] = True
-                    mask[3::6] = True
-
-                wf_v_indices_trunc = wf_v_indices[mask]
-                line_indices = np.concatenate([line_indices, wf_v_indices_trunc])
-
 
             normalData = self.createNormaldata(face_normals_to_draw)
 
@@ -685,9 +712,6 @@ class BasicPainter(Painter):
                 data_mesh_points_list = np.concatenate([data_mesh_points_list, vertexData])
                 data_mesh_normals_list = np.concatenate([data_mesh_normals_list, normalData])
                 data_mesh_colors_list = np.concatenate([data_mesh_colors_list, colorData])
-
-        if self.showModelWireframe:
-            self.line_indices = line_indices
 
         vertex_data = np.array(data_mesh_points_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
         normal_data = np.array(data_mesh_normals_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
