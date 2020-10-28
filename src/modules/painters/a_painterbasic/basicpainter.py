@@ -22,7 +22,7 @@ import time
 # from multiprocessing.pool import Pool
 from multiprocessing import Pool, Process, Manager, Queue, Array
 import multiprocessing
-
+import cProfile
 
 class SelModes(Enum):
     FULL_FILL_NEWMESH = 0  # Selected Mesh drawn fully by adding a new mesh with a new color
@@ -468,7 +468,8 @@ class BasicPainter(Painter):
         self.appenddictitemsize(key, n_triangles)
         self.allocatememory(key)
         # tsAG1 = time.perf_counter()
-        self.addMeshdata4oglmdl(key, geometry)
+        cProfile.runctx("self.addMeshdata4oglmdl(key, geometry)", globals(), locals())
+        # self.addMeshdata4oglmdl(key, geometry)
         # dtAG1 = time.perf_counter() - tsAG1
         self.bindData(key)
 
@@ -537,18 +538,6 @@ class BasicPainter(Painter):
             self.addSelection()
             self._doSelection = False
 
-    def addSelData4oglmdl_withOffset(self, key, si, geometry):
-        mesh = geometry.mesh
-        normals = mesh.face_normals()
-        points = mesh.points()
-        fv_indices = mesh.fv_indices()
-        selected_fv_indices = fv_indices[si.allfaces]
-        selected_face_normals = normals[si.allfaces]
-        cstype = 0
-        c = [1.0, 0.0, 1.0, 1.0]
-
-        self.addArrays4oglmdl_withOffset(key, selected_fv_indices, points, selected_face_normals, cstype, c, None, None)
-        return
 
     def addSelData4oglmdl(self, key, si, geometry):
         mesh = geometry.mesh
@@ -602,7 +591,7 @@ class BasicPainter(Painter):
         print("Add mesh data total:", dtAMD)
         return
 
-    def addArrays4oglmdl(self, key, fv_indices, points, face_normals, cstype, c, face_colors, vertex_colors):
+    def addArrays4oglmdl_bkp(self, key, fv_indices, points, face_normals, cstype, c, face_colors, vertex_colors):
         n_vertices_max = len(fv_indices[0])
 
         data_mesh_points_list = []
@@ -682,6 +671,112 @@ class BasicPainter(Painter):
         self.setlistdata_f3xyzf3nf4rgba(key, vertex_data, normal_data, color_data)
         # self.setVertexCounter(key, n_faces)
         self.setVertexCounter_byNum(key, n_all_vertices)
+        return
+
+    def addArrays4oglmdl(self, key, fv_indices, points, face_normals, cstype, c, face_colors, vertex_colors):
+        n_vertices_max = len(fv_indices[0])
+
+        data_mesh_points_list = []
+        data_mesh_normals_list = []
+        data_mesh_colors_list = []
+        n_all_vertices = 0
+        for corner_idx in range(1, n_vertices_max - 1):
+            if n_vertices_max > 3:
+                existing_triangles = fv_indices[:, corner_idx + 1] != -1
+
+                if True not in existing_triangles:
+                    continue
+
+                fv_indices_to_draw_all_vertices = fv_indices[existing_triangles]
+                fv_indices_to_draw = fv_indices_to_draw_all_vertices[:, [0, corner_idx, corner_idx + 1]]
+                face_normals_to_draw = face_normals[existing_triangles]
+            else:
+                fv_indices_to_draw = fv_indices
+                face_normals_to_draw = face_normals
+
+            fv_indices_flattened = fv_indices_to_draw.flatten()
+            n_all_vertices += len(fv_indices_flattened)
+
+            n_faces = len(fv_indices_to_draw)
+
+            vertexData = self.createVertexData(fv_indices_flattened, points)
+
+            normalData = self.createNormaldata(face_normals_to_draw)
+
+            if cstype == 0:
+                colorData = self.createConstantColorData(c, n_faces)
+            elif cstype == 1:
+                colorData = self.createFaceColorData(face_colors)
+            elif cstype == 2:
+                colorData = self.createVertexColorData(vertex_colors, fv_indices_flattened)
+
+            if self._showBack:
+                fv_indices_flattened_reversed = fv_indices_flattened[::-1]
+                n_all_vertices += len(fv_indices_flattened_reversed)
+
+                reversed_mesh_points = self.createVertexData(fv_indices_flattened_reversed, points)
+                vertexData = np.concatenate([vertexData, reversed_mesh_points])
+
+                reversed_normals = self.createNormaldata(-face_normals_to_draw[::-1])
+                normalData = np.concatenate([normalData, reversed_normals])
+
+                if cstype == 0:
+                    reversed_colors = colorData
+                elif cstype == 1:
+                    reversed_colors = self.createFaceColorData(face_colors[::-1])
+                elif cstype == 2:
+                    reversed_colors = self.createVertexColorData(vertex_colors, fv_indices_flattened_reversed)
+
+                colorData = np.concatenate([colorData, reversed_colors])
+
+            data_mesh_points_list = np.concatenate([data_mesh_points_list, vertexData])
+            data_mesh_normals_list = np.concatenate([data_mesh_colors_list, normalData])
+            data_mesh_colors_list = np.concatenate([data_mesh_colors_list, colorData])
+
+        vertex_data = np.array(data_mesh_points_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+        normal_data = np.array(data_mesh_normals_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+        color_data = np.array(data_mesh_colors_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
+
+        self.setlistdata_f3xyzf3nf4rgba(key, vertex_data, normal_data, color_data)
+        self.setVertexCounter_byNum(key, n_all_vertices)
+        return
+
+    def createVertexData(self, fv_indices_flattened, points):
+        mesh_points = points[fv_indices_flattened]
+        data_mesh_points = mesh_points.flatten()
+
+        return data_mesh_points
+
+    def createNormaldata(self, face_normals_to_draw):
+        mesh_normals = np.repeat(face_normals_to_draw, 3, axis=0)
+        data_mesh_normals = mesh_normals.flatten()
+
+        return data_mesh_normals
+
+    def createConstantColorData(self, c, n_faces):
+        mesh_colors = np.tile(c, 3 * n_faces)
+        data_mesh_colors = mesh_colors.flatten()
+        return data_mesh_colors
+
+    def createFaceColorData(self, face_colors):
+        mesh_colors = np.repeat(face_colors, 3, axis=0)
+        data_mesh_colors = mesh_colors.flatten()
+        return data_mesh_colors
+
+    def createVertexColorData(self, vertex_colors, fv_indices_flattened):
+        return vertex_colors[fv_indices_flattened]
+
+    def addSelData4oglmdl_withOffset(self, key, si, geometry):
+        mesh = geometry.mesh
+        normals = mesh.face_normals()
+        points = mesh.points()
+        fv_indices = mesh.fv_indices()
+        selected_fv_indices = fv_indices[si.allfaces]
+        selected_face_normals = normals[si.allfaces]
+        cstype = 0
+        c = [1.0, 0.0, 1.0, 1.0]
+
+        self.addArrays4oglmdl_withOffset(key, selected_fv_indices, points, selected_face_normals, cstype, c, None, None)
         return
 
     def addArrays4oglmdl_withOffset(self, key, fv_indices, points, face_normals, cstype, c, face_colors, vertex_colors):
@@ -769,7 +864,7 @@ class BasicPainter(Painter):
         # self.setVertexCounter(key, n_faces)
         self.setVertexCounter_byNum(key, n_all_vertices)
         return
-    
+
     @Slot()
     def onSelected(self, si: SelectionInfo):
         if self.selType == SelModes.FULL_FILL_NEWMESH:  # whole geometry selection
