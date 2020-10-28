@@ -591,88 +591,6 @@ class BasicPainter(Painter):
         print("Add mesh data total:", dtAMD)
         return
 
-    def addArrays4oglmdl_bkp(self, key, fv_indices, points, face_normals, cstype, c, face_colors, vertex_colors):
-        n_vertices_max = len(fv_indices[0])
-
-        data_mesh_points_list = []
-        data_mesh_normals_list = []
-        data_mesh_colors_list = []
-        n_all_vertices = 0
-        for corner_idx in range(1, n_vertices_max - 1):
-            existing_triangles = fv_indices[:, corner_idx + 1] != -1
-
-            if True not in existing_triangles:
-                continue
-
-            fv_indices_to_draw_all_vertices = fv_indices[existing_triangles]
-            fv_indices_to_draw = fv_indices_to_draw_all_vertices[:, [0, corner_idx, corner_idx + 1]]
-
-            n_faces = len(fv_indices_to_draw_all_vertices)
-
-            n_vertices_per_polygon = len(fv_indices_to_draw[0])
-            fv_indices_flattened = fv_indices_to_draw.flatten()
-            mesh_points = points[fv_indices_flattened]
-            data_mesh_points = mesh_points.flatten()
-
-            n_all_vertices += len(fv_indices_flattened)
-
-            face_normals_to_draw = face_normals[existing_triangles]
-            mesh_normals = np.repeat(face_normals_to_draw, n_vertices_per_polygon, axis=0)
-            data_mesh_normals = mesh_normals.flatten()
-
-            if cstype == 0:
-                mesh_colors = np.tile(c, n_vertices_per_polygon * n_faces)
-                data_mesh_colors = mesh_colors.flatten()
-            elif cstype == 1:
-                mesh_colors = np.repeat(face_colors, n_vertices_per_polygon, axis=0)
-                data_mesh_colors = mesh_colors.flatten()
-            elif cstype == 2:
-                # Vertex colors has not been tested and is only implemented from context.
-                # --> Errors can occur.
-                data_mesh_colors = vertex_colors[fv_indices_flattened]
-
-            if self._showBack:
-                fv_indices_flattened_reversed = fv_indices_flattened[::-1]
-                n_all_vertices += len(fv_indices_flattened_reversed)
-
-                reversed_mesh_points = points[fv_indices_flattened_reversed]
-                reversed_mesh_points = reversed_mesh_points.flatten()
-
-                reversed_normals = -face_normals_to_draw[::-1]
-                reversed_normals = np.repeat(reversed_normals, n_vertices_per_polygon, axis=0)
-                reversed_normals = reversed_normals.flatten()
-
-                if cstype == 0:
-                    reversed_mesh_colors = data_mesh_colors
-                elif cstype == 1:
-                    reversed_mesh_colors = face_colors[::-1]
-                    reversed_mesh_colors = np.repeat(reversed_mesh_colors, n_vertices_per_polygon, axis=0)
-                    reversed_mesh_colors = reversed_mesh_colors.flatten()
-                elif cstype == 2:
-                    reversed_mesh_colors = vertex_colors[fv_indices_flattened_reversed]
-                    reversed_mesh_colors = reversed_mesh_colors.flatten()
-
-                data_mesh_points = np.concatenate([data_mesh_points, reversed_mesh_points])
-                data_mesh_normals = np.concatenate([data_mesh_normals, reversed_normals])
-                data_mesh_colors = np.concatenate([data_mesh_colors, reversed_mesh_colors])
-
-            data_mesh_points_list.append(data_mesh_points)
-            data_mesh_normals_list.append(data_mesh_normals)
-            data_mesh_colors_list.append(data_mesh_colors)
-
-        data_mesh_points_list = np.concatenate([*data_mesh_points_list])
-        data_mesh_normals_list = np.concatenate([*data_mesh_normals_list])
-        data_mesh_colors_list = np.concatenate([*data_mesh_colors_list])
-
-        vertex_data = np.array(data_mesh_points_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
-        normal_data = np.array(data_mesh_normals_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
-        color_data = np.array(data_mesh_colors_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
-
-        self.setlistdata_f3xyzf3nf4rgba(key, vertex_data, normal_data, color_data)
-        # self.setVertexCounter(key, n_faces)
-        self.setVertexCounter_byNum(key, n_all_vertices)
-        return
-
     def addArrays4oglmdl(self, key, fv_indices, points, face_normals, cstype, c, face_colors, vertex_colors):
         n_vertices_max = len(fv_indices[0])
 
@@ -726,11 +644,11 @@ class BasicPainter(Painter):
                     reversed_colors = self.createVertexColorData(vertex_colors, fv_indices_flattened_reversed)
 
                 data_mesh_points_list = np.concatenate([data_mesh_points_list, vertexData, reversed_mesh_points])
-                data_mesh_normals_list = np.concatenate([data_mesh_colors_list, normalData, reversed_normals])
+                data_mesh_normals_list = np.concatenate([data_mesh_normals_list, normalData, reversed_normals])
                 data_mesh_colors_list = np.concatenate([data_mesh_colors_list, colorData, reversed_colors])
             else:
                 data_mesh_points_list = np.concatenate([data_mesh_points_list, vertexData])
-                data_mesh_normals_list = np.concatenate([data_mesh_colors_list, normalData])
+                data_mesh_normals_list = np.concatenate([data_mesh_normals_list, normalData])
                 data_mesh_colors_list = np.concatenate([data_mesh_colors_list, colorData])
 
         vertex_data = np.array(data_mesh_points_list, dtype=GLHelpFun.numpydatatype(GLDataType.FLOAT))
