@@ -12,7 +12,7 @@ class GLEntityType(Enum):
     QUAD = GL.GL_QUADS
     TRIA = GL.GL_TRIANGLES
     LINE = GL.GL_LINES
-    POINT = GL.GL_POINT
+    POINT = GL.GL_POINTS
 
 
 class GLDataType(Enum):
