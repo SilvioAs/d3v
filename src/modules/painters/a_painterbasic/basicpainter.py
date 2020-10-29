@@ -14,7 +14,7 @@ from geometry import Geometry
 import openmesh as om
 import numpy as np
 from selinfo import SelectionInfo
-from PySide2.QtGui import QBrush, QPainter, QPen, QPolygon, QColor, QFont
+from PySide2.QtGui import QBrush, QPainter, QPen, QPolygon, QColor, QFont, QVector4D
 from PySide2.QtCore import QRect, Qt
 from PySide2.QtWidgets import QApplication
 import os
@@ -79,14 +79,18 @@ class BasicPainter(Painter):
         self.fragmentWireframeShader = self.fragmentWireframeShaderSource()
         self.projMatrixLoc_wireframe = 0
         self.mvMatrixLoc_wireframe = 0
+        self.wfColor_wireframe = 0
 
         self.lineWidth = 3.0
         self.polyOffsetFactor = 1.0
         self.polyOffsetUnits = 1.0
 
+        self.selectionColor = QVector4D(1.0, 0.0, 1.0, 1.0)
+
         self.showModelWireframe = True
         if self.showModelWireframe:
             self.line_indices = []
+            self.polygonWFColor = QVector4D(1.0, 0.0, 0.0, 1.0)
 
 
     @property
@@ -148,6 +152,9 @@ class BasicPainter(Painter):
             self.wireframeProgram.bind()
             self.projMatrixLoc_wireframe = self.wireframeProgram.uniformLocation("projMatrix")
             self.mvMatrixLoc_wireframe = self.wireframeProgram.uniformLocation("mvMatrix")
+            self.wfColor_wireframe = self.wireframeProgram.uniformLocation("wfColor")
+            selectionColor = QVector4D(0.0, 0.0, 1.0, 1.0)
+            self.wireframeProgram.setUniformValue(self.wfColor_wireframe, selectionColor)
             self.wireframeProgram.release()
             GL.glLineWidth(self.lineWidth)
 
@@ -190,6 +197,7 @@ class BasicPainter(Painter):
             elif (key == 0) and (self.selType == SelModes.FACET_WF):
                 GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
                 self.wireframeProgram.bind()
+                self.wireframeProgram.setUniformValue(self.wfColor_wireframe, self.selectionColor)
                 value.drawvao(self.glf)
                 self.wireframeProgram.release()
                 GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
@@ -197,6 +205,7 @@ class BasicPainter(Painter):
             elif (key == 0) and (self.selType == SelModes.FACET_FILL_GLOFFSET):
                 GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
                 self.wireframeProgram.bind()
+                self.wireframeProgram.setUniformValue(self.wfColor_wireframe, self.selectionColor)
                 GL.glPolygonOffset(-self.polyOffsetFactor, -self.polyOffsetUnits)
                 value.drawvao(self.glf)
                 GL.glPolygonOffset(self.polyOffsetFactor, self.polyOffsetUnits)
@@ -208,6 +217,7 @@ class BasicPainter(Painter):
             elif (key == self._si.geometry._guid) and (self.selType == SelModes.FULL_WF):
                 GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
                 self.wireframeProgram.bind()
+                self.wireframeProgram.setUniformValue(self.wfColor_wireframe, self.selectionColor)
                 value.drawvao(self.glf)
                 self.wireframeProgram.release()
                 GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
@@ -218,6 +228,7 @@ class BasicPainter(Painter):
             elif type(key) == str:
                 if "_wf" in key:
                     self.wireframeProgram.bind()
+                    self.wireframeProgram.setUniformValue(self.wfColor_wireframe, self.polygonWFColor)
                     value.drawvao(self.glf)
                     self.wireframeProgram.release()
             else:
@@ -417,30 +428,41 @@ class BasicPainter(Painter):
                            gl_FragColor = vec4(col, selectionColor.w);
                         }"""
 
-    def vertexWireframeShaderSource(self):
+    def vertexWireframeShaderSource_bkp(self):
         return """attribute vec4 vertex;
-                attribute vec3 normal;
-                attribute vec4 color;
-                varying vec3 vert;
-                varying vec3 vertNormal;
-                varying vec4 colorV;
+                // attribute vec3 normal;
+                // attribute vec4 color;
+                // varying vec3 vert;
+                // varying vec3 vertNormal;
+                // varying vec4 colorV;
                 uniform mat4 projMatrix;
                 uniform mat4 mvMatrix;
                 void main() {
                    // vert: necessary that edges of triangle show up at all
-                   vert = vertex.xyz;
+                   // vert = vertex.xyz;
                    // vertNormal: necessary that edges of triangle appear in the correct coloring
-                   vertNormal = normal;
+                   // vertNormal = normal;
                    // vertNormal = vec3(1.0, 1.0, 1.0);
                    gl_Position = projMatrix * mvMatrix * vertex;
-                   colorV = color;
+                   // colorV = color;
+                }"""
+
+    def vertexWireframeShaderSource(self):
+        return """attribute vec4 vertex;
+                uniform mat4 projMatrix;
+                uniform mat4 mvMatrix;
+                uniform vec4 wfColor;
+                void main() {
+                   gl_Position = projMatrix * mvMatrix * vertex;
                 }"""
 
     def fragmentWireframeShaderSource(self):
         return """
                 const highp vec4 wireframeColor = vec4(1.0, 0.0, 1.0, 1.0);
+                uniform vec4 wfColor;
                 void main() {
-                gl_FragColor = wireframeColor;
+                // gl_FragColor = wireframeColor;
+                gl_FragColor = wfColor;
                 }
                """
 
@@ -561,7 +583,6 @@ class BasicPainter(Painter):
             self.addSelection()
             self._doSelection = False
 
-
     def addSelData4oglmdl(self, key, si, geometry):
         mesh = geometry.mesh
         normals = mesh.face_normals()
@@ -603,9 +624,11 @@ class BasicPainter(Painter):
         n_vertices = len(line_indices)
         vertices = points[line_indices]
         vertices = np.array(vertices, dtype=np.float32).flatten()
-        colors = np.array([[1.0, 0.0, 0.0, 1.0] for v_idx in range(2 * n_vertices)], dtype=np.float32).flatten()
-        normals = np.array([[1.0, 1.0, 1.0] for v_idx in range(2 * n_vertices)], dtype=np.float32).flatten()
+        # colors = np.array([[1.0, 0.0, 0.0, 1.0] for v_idx in range(2 * n_vertices)], dtype=np.float32).flatten()
+        # normals = np.array([[1.0, 1.0, 1.0] for v_idx in range(2 * n_vertices)], dtype=np.float32).flatten()
         # normals = np.array([])
+        normals = np.array([])
+        colors = np.array([])
 
         self.setlistdata_f3xyzf3nf4rgba(key, vertices, normals, colors)
         self.setVertexCounter_byNum(key, n_vertices)
