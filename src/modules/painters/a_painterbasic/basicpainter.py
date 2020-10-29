@@ -19,6 +19,8 @@ from PySide2.QtCore import QRect, Qt
 from PySide2.QtWidgets import QApplication
 import time
 
+from icosphere import Icosphere
+
 
 class SelModes(Enum):
     FULL_FILL_NEWMESH = 0       # Selected Mesh drawn fully by adding a new mesh with a new color
@@ -81,6 +83,8 @@ class BasicPainter(Painter):
         self.lineWidth = 3.0
         self.polyOffsetFactor = 1.0
         self.polyOffsetUnits = 1.0
+
+        self.showVertices = True
 
     @property
     def showBack(self):
@@ -208,6 +212,14 @@ class BasicPainter(Painter):
                 value.drawvao(self.glf)
                 self.program.release()
 
+            elif type(key) == str:
+                if "_vertices" in key:
+                    GL.glPointSize(10.0)
+                    self.wireframeProgram.bind()
+                    GL.glEnable(GL.GL_POINT_SMOOTH)
+                    value.drawvao(self.glf)
+                    self.wireframeProgram.release()
+
             else:
                 self.program.bind()
                 value.drawvao(self.glf)
@@ -289,6 +301,9 @@ class BasicPainter(Painter):
             self._dentsvertsdata[key].setVertexCounter(n_faces * 3 * 2)
         else:
             self._dentsvertsdata[key].setVertexCounter(n_faces * 3)
+
+    def setVertexCounterByN(self, key, n_vertices):
+        self._dentsvertsdata[key].setVertexCounter(n_vertices)
 
     def appenddictitemsize(self, key, numents):
         """!
@@ -436,6 +451,9 @@ class BasicPainter(Painter):
         return """
                 const highp vec4 wireframeColor = vec4(1.0, 0.0, 1.0, 1.0);
                 void main() {
+                vec3 temp = gl_PointCoord - vec3(0.5);
+                float f = dot(temp, temp);
+                if (f > 0.25) discard;
                 gl_FragColor = wireframeColor;
                 }
                """
@@ -469,6 +487,16 @@ class BasicPainter(Painter):
         self.addMeshdata4oglmdl(key, geometry)
         # dtAG1 = time.perf_counter() - tsAG1
         self.bindData(key)
+
+        if self.showVertices:
+            key = str(key) + "_vertices"
+            self.initnewdictitem(key, GLEntityType.POINT)
+            fv_indices = geometry.mesh.fv_indices()
+            n_points = len(fv_indices.flatten())
+            self.appenddictitemsize(key, n_points)
+            self.allocatememory(key)
+            self.addVertexdata4oglmdl(key, geometry)
+            self.bindData(key)
 
         # dtAG = time.perf_counter() - tsAG
         # print("Add geometry time, s:", dtAG)
@@ -594,6 +622,20 @@ class BasicPainter(Painter):
                                                    c[0], c[1], c[2], c[3])
         return
 
+    def addVertexdata4oglmdl(self, key, geometry):
+        mesh = geometry.mesh
+        fv_indices = mesh.fv_indices()
+        points = mesh.points()
+        points_to_draw = points[fv_indices]
+        vertexData = points_to_draw.flatten()
+        vertexData = np.array(vertexData, dtype=np.float32)
+        colorData = np.array([])
+        normalData = np.array([])
+        n_vertices = len(fv_indices.flatten())
+
+        self.setlistdata_f3xyzf3nf4rgba(key, vertexData, colorData, normalData)
+        self.setVertexCounterByN(key, n_vertices)
+
     def addMeshdata4oglmdl(self, key, geometry):
         """
         Converts the mesh data of a geometry to the vertex data necessary for OpenGL.
@@ -684,6 +726,26 @@ class BasicPainter(Painter):
         dtAMD = time.perf_counter() - tsAMD
         print("Add mesh data total:", dtAMD)
         return
+
+    def addVertexdata4oglmdl_ico(self, key, geometry):
+        mesh = geometry.mesh
+        fv_indices = mesh.fv_indices()
+        fv_indices = fv_indices.flatten()
+        fv_indices = np.unique(fv_indices)
+        points = mesh.points()
+
+        vertex_data = []
+        for vertex_idx in fv_indices:
+            point = points[vertex_idx]
+            icosphere = Icosphere(0.1, point[0], point[1], point[2])
+            triangles = icosphere.triangles
+            triangle_vertices = triangles.flatten()
+            vertex_data.append(triangle_vertices)
+
+        vertex_data = np.array(vertex_data, dtype=np.float32).flatten()
+
+
+
 
     @Slot()
     def onSelected(self, si: SelectionInfo):
