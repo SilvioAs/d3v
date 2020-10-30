@@ -24,12 +24,13 @@ class Icosphere:
         self.r = r
         self.alpha = np.arctan(0.5)
 
-        self.triangles = np.array([])
+        self.triangle_coords = np.array([])
+        self.triangle_normals = np.array([])
 
         self.create()
 
     def create(self):
-        self.triangles = []
+        self.triangle_coords = []
 
         n = [0, 0, self.r]  # north pole
         s = [0, 0, -self.r]  # south pole
@@ -38,7 +39,7 @@ class Icosphere:
         for i in range(5):
             vertex2 = self.upper_vertex(i)
             vertex3 = self.upper_vertex(i + 1)
-            self.triangles.append([n, vertex2, vertex3])
+            self.triangle_coords.append([n, vertex2, vertex3])
 
         # Middle part - 10 triangles
         for i in range(5):
@@ -46,35 +47,36 @@ class Icosphere:
             vertex1 = self.upper_vertex(i)
             vertex2 = self.lower_vertex(i)
             vertex3 = self.lower_vertex(i+1)
-            self.triangles.append([vertex1, vertex2, vertex3])
+            self.triangle_coords.append([vertex1, vertex2, vertex3])
 
             vertex1 = self.upper_vertex(i)
             vertex2 = self.upper_vertex(i+1)
             vertex3 = self.lower_vertex(i+1)
-            self.triangles.append([vertex1, vertex2, vertex3])
+            self.triangle_coords.append([vertex1, vertex3, vertex2])
 
         # Lower part - 5 triangles
         for i in range(5):
             vertex2 = self.lower_vertex(i)
             vertex3 = self.lower_vertex(i+1)
-            self.triangles.append([s, vertex2, vertex3])
+            self.triangle_coords.append([s, vertex3, vertex2])
 
-        self.triangles = np.array(self.triangles)
-        self.triangles[:, :, 0] += self.xc
-        self.triangles[:, :, 1] += self.yc
-        self.triangles[:, :, 2] += self.zc
+        self.triangle_coords = np.array(self.triangle_coords)
+        self.triangle_normals = np.array(self.triangle_coords)
+        self.triangle_coords[:, :, 0] += self.xc
+        self.triangle_coords[:, :, 1] += self.yc
+        self.triangle_coords[:, :, 2] += self.zc
 
     @staticmethod
     def v3_length(v3):
         return np.sqrt(v3[0] ** 2 + v3[1] ** 2 + v3[2] ** 2)
 
     def subDivide(self):
-        self.triangles[:, :, 0] -= self.xc
-        self.triangles[:, :, 1] -= self.yc
-        self.triangles[:, :, 2] -= self.zc
+        self.triangle_coords[:, :, 0] -= self.xc
+        self.triangle_coords[:, :, 1] -= self.yc
+        self.triangle_coords[:, :, 2] -= self.zc
 
         subdivided_triangles = []
-        for triangle_idx, triangle in enumerate(self.triangles):
+        for triangle_idx, triangle in enumerate(self.triangle_coords):
             print(triangle_idx)
             new_vertices = np.zeros((3, 3))
             new_vertices[0] = (triangle[0] + triangle[1]) / 2
@@ -95,21 +97,30 @@ class Icosphere:
             subdivided_triangles.append(new_triangle3)
             subdivided_triangles.append(new_triangle4)
 
-        self.triangles = np.array(subdivided_triangles)
-        self.triangles[:, :, 0] += self.xc
-        self.triangles[:, :, 1] += self.yc
-        self.triangles[:, :, 2] += self.zc
+        self.triangle_coords = np.array(subdivided_triangles)
+        self.triangle_normals = np.array(subdivided_triangles)
+        self.triangle_coords[:, :, 0] += self.xc
+        self.triangle_coords[:, :, 1] += self.yc
+        self.triangle_coords[:, :, 2] += self.zc
+
+    def get_coords(self):
+        return self.triangle_coords
+
+    def get_normals(self):
+        return self.triangle_normals
 
 
 if __name__ == "__main__":
     icosphere = Icosphere(1.0, 5, 5, 5)
-    icosphere.subDivide()
-    icosphere.subDivide()
+    # icosphere.subDivide()
+    # icosphere.subDivide()
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    for triangle_idx, triangle in enumerate(icosphere.triangles):
+    coords = icosphere.get_coords()
+    coords = coords[15:20]
+    for triangle_idx, triangle in enumerate(coords):
         ax.plot(
             [triangle[0, 0], triangle[1, 0]],
             [triangle[0, 1], triangle[1, 1]],
@@ -128,5 +139,5 @@ if __name__ == "__main__":
             [triangle[2, 2], triangle[0, 2]], color='black'
         )
 
-    ax.scatter(icosphere.triangles[:, :, 0], icosphere.triangles[:, :, 1], icosphere.triangles[:, :, 2])
+    ax.scatter(coords[:, :, 0], coords[:, :, 1], coords[:, :, 2])
     plt.show()
