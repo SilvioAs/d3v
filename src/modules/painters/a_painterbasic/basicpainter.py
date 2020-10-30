@@ -85,6 +85,10 @@ class BasicPainter(Painter):
         self.polyOffsetUnits = 1.0
 
         self.showVertices = True
+        # self.showVerticesMode = 0  # GL_POINTS
+        self.showVerticesMode = 1  # icosphere
+        self.icosphereR = 0.05
+        self.icosphereSubdivideLevel = 1
 
     @property
     def showBack(self):
@@ -124,7 +128,7 @@ class BasicPainter(Painter):
         self.program.release()
 
         # Shader for selection
-        if self.selType == SelModes.FULL_FILL_SHADER:
+        if (self.selType == SelModes.FULL_FILL_SHADER) or (self.showVertices and (self.showVerticesMode == 1)):
             self.selectionProgram = QOpenGLShaderProgram()
             self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Vertex, self.vertexSelectionShader)
             self.selectionProgram.addShaderFromSourceCode(QOpenGLShader.Fragment, self.fragmentSelectionShader)
@@ -156,7 +160,7 @@ class BasicPainter(Painter):
         self.program.setUniformValue(self.normalMatrixLoc, normalMatrix)
         self.program.release()
 
-        if self.selType == SelModes.FULL_FILL_SHADER:
+        if (self.selType == SelModes.FULL_FILL_SHADER) or (self.showVertices and (self.showVerticesMode == 1)):
             self.selectionProgram.bind()
             self.selectionProgram.setUniformValue(self.lightPosLoc_selection, lightpos)
             self.selectionProgram.setUniformValue(self.projMatrixLoc_selection, proj)
@@ -214,11 +218,15 @@ class BasicPainter(Painter):
 
             elif type(key) == str:
                 if "_vertices" in key:
-                    GL.glPointSize(10.0)
-                    self.wireframeProgram.bind()
-                    GL.glEnable(GL.GL_POINT_SMOOTH)
-                    value.drawvao(self.glf)
-                    self.wireframeProgram.release()
+                    if self.showVerticesMode == 0:
+                        GL.glPointSize(10.0)
+                        self.wireframeProgram.bind()
+                        value.drawvao(self.glf)
+                        self.wireframeProgram.release()
+                    else:
+                        self.selectionProgram.bind()
+                        value.drawvao(self.glf)
+                        self.selectionProgram.release()
 
             else:
                 self.program.bind()
@@ -261,9 +269,6 @@ class BasicPainter(Painter):
         """
 
         self._dentsvertsdata[key] = VertDataCollectorCoord3fNormal3fColor4f(enttype)
-
-    def initnewdictitem_withoutN(self, key, enttype):
-        self._dentsvertsdata[key] = VertDataCollectorCoord3fColor4f(enttype)
 
     def appendlistdata_f3xyzf3nf4rgba(self, key, x, y, z, nx, ny, nz, r, g, b, a):
         """!
@@ -451,9 +456,6 @@ class BasicPainter(Painter):
         return """
                 const highp vec4 wireframeColor = vec4(1.0, 0.0, 1.0, 1.0);
                 void main() {
-                vec3 temp = gl_PointCoord - vec3(0.5);
-                float f = dot(temp, temp);
-                if (f > 0.25) discard;
                 gl_FragColor = wireframeColor;
                 }
                """
@@ -489,14 +491,23 @@ class BasicPainter(Painter):
         self.bindData(key)
 
         if self.showVertices:
-            key = str(key) + "_vertices"
-            self.initnewdictitem(key, GLEntityType.POINT)
-            fv_indices = geometry.mesh.fv_indices()
-            n_points = len(fv_indices.flatten())
-            self.appenddictitemsize(key, n_points)
-            self.allocatememory(key)
-            self.addVertexdata4oglmdl(key, geometry)
-            self.bindData(key)
+            if self.showVerticesMode == 0:
+                key = str(key) + "_vertices"
+                self.initnewdictitem(key, GLEntityType.POINT)
+                fv_indices = geometry.mesh.fv_indices()
+                n_points = len(fv_indices.flatten())
+                self.appenddictitemsize(key, n_points)
+                self.allocatememory(key)
+                self.addVertexdata4oglmdl(key, geometry)
+                self.bindData(key)
+            elif self.showVerticesMode == 1:
+                key = str(key) + "_vertices"
+                self.initnewdictitem(key, GLEntityType.TRIA)
+                icosphere_faces = 20 * nf * self._multFactor
+                self.appenddictitemsize(key, icosphere_faces)
+                self.allocatememory(key)
+                self.addIcospheredata4oglmdl(key, geometry)
+                self.bindData(key)
 
         # dtAG = time.perf_counter() - tsAG
         # print("Add geometry time, s:", dtAG)
@@ -727,25 +738,55 @@ class BasicPainter(Painter):
         print("Add mesh data total:", dtAMD)
         return
 
-    def addVertexdata4oglmdl_ico(self, key, geometry):
+    def addIcospheredata4oglmdl(self, key, geometry):
         mesh = geometry.mesh
         fv_indices = mesh.fv_indices()
         fv_indices = fv_indices.flatten()
         fv_indices = np.unique(fv_indices)
         points = mesh.points()
+        points_to_draw = points[fv_indices]
+        icosphere = Icosphere(self.icosphereR, 0, 0, 0)
+        for i in range(self.icosphereSubdivideLevel):
+            icosphere.subDivide()
+        tri_coords = icosphere.get_coords()
+        tri_normals = icosphere.get_normals()
 
-        vertex_data = []
-        for vertex_idx in fv_indices:
-            point = points[vertex_idx]
-            icosphere = Icosphere(0.1, point[0], point[1], point[2])
-            triangles = icosphere.triangles
-            triangle_vertices = triangles.flatten()
-            vertex_data.append(triangle_vertices)
+        n_points = len(fv_indices)
+        n_triangles = len(tri_coords)
+        n_vertices = len(tri_coords[0])
+        n_coords = len(tri_coords[0][0])
+        vertex_data = np.zeros((n_points,
+                                n_triangles,
+                                n_vertices,
+                                n_coords))
+        normal_data = np.zeros((n_points,
+                                n_triangles,
+                                n_vertices,
+                                n_coords))
+
+        for triangle_idx in range(len(tri_coords)):
+            for vertex_idx in range(len(tri_coords[triangle_idx])):
+                for xyz_idx in range(len(tri_coords[triangle_idx, vertex_idx])):
+                    vertex_data[:, triangle_idx, vertex_idx, xyz_idx] = tri_coords[triangle_idx, vertex_idx, xyz_idx]
+                    vertex_data[:, triangle_idx, vertex_idx, xyz_idx] += points_to_draw[:, xyz_idx]
+
+                    normal_data[:, triangle_idx, vertex_idx, xyz_idx] = tri_normals[triangle_idx, vertex_idx, xyz_idx]
+
+        # normals in icosphere are not correct yet
+        # fix by change order of vertices
+        if self.showBack:
+            vertex_data_reversed = vertex_data[:, :, ::-1, :]
+            vertex_data = np.concatenate([vertex_data, vertex_data_reversed])
+            normal_data_reversed = -normal_data[:, :, ::-1, :]
+            normal_data = np.concatenate([normal_data, normal_data_reversed])
 
         vertex_data = np.array(vertex_data, dtype=np.float32).flatten()
+        color_data = np.array([])
+        normal_data = np.array(normal_data, dtype=np.float32).flatten()
 
-
-
+        n_vertices = int(len(vertex_data) / 3)
+        self.setlistdata_f3xyzf3nf4rgba(key, vertex_data, normal_data, color_data)
+        self.setVertexCounterByN(key, n_vertices)
 
     @Slot()
     def onSelected(self, si: SelectionInfo):
